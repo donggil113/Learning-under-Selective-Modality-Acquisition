@@ -10,7 +10,7 @@
 | 획득(A = 검사 시행) 수준의 주장 | **BLOCKED_REALDATA** | PhysioNet 2012와 UCI Heart는 "기록 없음 = 미시행"을 문서로 확인할 수 없다. MIMIC-IV 전체·CXR·ECG·Note와 eICU 전체는 credentialing이 필요하다. 공개 MIMIC-IV demo에서는 X선 order가 있는 90 stay에 파일이 0개다(§6.3) |
 | 기록 가용성(M) 수준의 실증 감사 (C4) | 수행 완료. 결과는 대체로 **음성** | 29개 모델, 설계 3종 × 6 run. 인공 dropout은 자연 결측 순위를 τ 0.52–0.70으로 재현한다. 유의 반전은 run당 0.8–6.7쌍(진실-유의 쌍의 0.3–2.6%)이고 소수 run에 몰린다. 같은 모집단에서는 관측 공변량 IW가 이를 대부분 없애고, class balance는 설명하지 못한다(§7.2–7.3). ABG가 기록되지 않은 stay의 사망 odds는 완전사례 모형 예측의 0.39–0.69배로 결과모형과 무관하게 낮다. 그러나 이 항이 쌍별 순위를 뒤집는 비율은 음성 대조와 구분되지 않는다(§7.4) |
 | 반합성 검증 (실제 특징·label, 알려진 기전) | 이론과 일치 | MCAR에서는 모든 평가가 비슷하다. label 의존이 커지면 인공 dropout은 확신을 가지고 틀린다(δ=0.5에서 결정 정답률 54%, δ=1.0에서 44%). AA는 참 λ에서 CI 포함률 95–100%를 유지하지만 거의 결정하지 못한다(δ ≥ 0.5에서 0–7%). MAR에서는 후보 간 진실 차가 작아 모든 규칙의 순위 일치가 낮다(τ 0.20–0.30) |
-| 최소 반례·가정 사다리 | 정확히 증명·수치 검증 | CE1: 무작위 완전 관측 source에서 관측 가능한 정보가 같은 두 세계의 순위가 반대다. CE1b: 실제 설계(완전사례 V)에서는 Y 의존 없이도 순위가 반대다. CE2/CE3: 선택과 MAR mask에 의한 반전이며 IW로 복구된다. 새로움은 marginal(Stokes App. A, Rockenschaub Thm 1의 따름정리) |
+| 최소 반례·가정 사다리 | 정확히 증명·수치 검증 | CE1: 무작위 완전 관측 source에서 관측 가능한 정보가 같은 두 세계의 순위가 반대다. CE1b: 실제 설계(완전사례 V)에서는 Y 의존 없이도 순위가 반대다. CE2/CE3: 선택과 MAR mask에 의한 반전이며 IW로 복구된다. 새로움은 marginal(Garg et al. 2022 Prop. 1, Molenberghs et al. 2008의 따름정리) |
 
 **수행 항목별 위치:** 1 → §1–2, 2 → §2 표, 3 → §3, 4 → §4, 5 → §5·§7.5, 6 → §7.1–7.2, 7 → §6, 8 → §7.2–7.4.
 
@@ -61,29 +61,34 @@ INFOGAIN에서 확인한, N1이 반복하면 안 되는 세 가지:
 
 | 항목 | Domain Adaptation under Missingness Shift (Zhou, Balakrishnan, Lipton, AISTATS 2023) | Domain Adaptation Under MNAR Missingness (Stokes, Do, Blecker, Chunara, Adhikari, arXiv 2025) |
 |---|---|---|
-| 불변 가정 | 완전자료 P(X,Y)가 두 도메인에서 동일(Def. 1). **S가 없음** | P(X_o,X_u) 및 P(Y∣X_o,X_u,R) 동일. S가 없음 |
+| 불변 가정 | 완전자료 P(X,Y)가 두 도메인에서 동일(Def. 1). **S가 없음** | 기본: P(X_o,X_u) 및 P(Y∣X_o,X_u,R) 동일. 확장(App. D, Sec. 5): 대입한 (X_o, X_u, R)에 대한 IW로 **공변량 이동을 동시에** 다룸(eICU 지역 간 비교). 다만 source가 M의 함수로 선택된 완전사례인 경우(S = f(M))는 다루지 않음 |
 | 결측 기전 | 주: UCAR(지시자 없음, 특징별 독립 Bernoulli). Prop. 1: 지시자 관측 + MCAR/v-MAR | MNAR(self-censoring + 잠재 교란) |
 | source 접근 | label 있음, **source도 결측**(완전 관측 아님) | label 있음, source도 결측 |
 | target 접근 | 비라벨 X̃_t | 비라벨 (X_o, X*_u, R) |
 | 식별 결과 | 상대 결측률 식별(Rem. 5) → 라벨 target 분포 식별(Thm 5.2). **Alg. 1 = target 비율로 보정한 인공 dropout**. Prop. 1: 지시자+MCAR/v-MAR이면 (x̃, ξ)에 대한 공변량 이동 → IW | App. A: MNAR에서 P_T(Y∣x_obs,R) ≠ P_S(Y∣x_obs,R) → 관측자료 IW 불충분. Thm 1은 대입 오차 → 목표 MSE의 **환원**(식별 아님) |
 | 비식별 결과 | 절대 결측률 비식별(Rem. 4) | self-censoring은 비모수적으로 비식별(인용) |
 | 방법 | 재마스킹(Alg. 1), 선형 폐형식(Alg. 2) | 도메인별 MNAR 대입 후 도메인 분류기 IW |
-| 실험 | 합성·반합성은 **인공 MCAR**. eICU 자연 결측에서는 **적응법이 비적응 모델에 패배**, 저자들이 원인으로 "선택 편향(매우 다른 코호트), label shift, 유병률 변화"를 지목 | 합성 self-censoring 약 12만 회. eICU 자연 결측, "평균 대입보다 크게 낫지 않음" |
+| 실험 | 합성·반합성은 **인공 MCAR**. eICU 자연 결측에서는 **적응법이 비적응 모델에 패배**했다. 직접적 이유는 적용 가능한 비모수 조정이 부적절(m_s ⋠ m_t)했다는 것이다. 저자들은 다른 이동(선택, label/유병률)이 결측 이동보다 클 수 있다고 **추측**만 했으며, 두 병원의 사망률은 0.097 대 0.100으로 거의 같다 | 합성 self-censoring 약 12만 회. eICU 자연 결측, "평균 대입보다 크게 낫지 않음" |
 | 불확실성 | 지표 bootstrap | seed 5개 |
 | 모델 순위/위험 차 | 다루지 않음 | 다루지 않음 |
-| S vs M | 분리하지 않음(실패 원인으로만 언급) | 분리하지 않음 |
+| S vs M | 분리하지 않음(실패의 가능한 원인으로 추측) | 공변량 이동은 다루지만 완전사례 선택(S = f(M))은 다루지 않음 |
 | target label | 평가 전용 | 평가 + "leak" 대입기 + 개념 이동 진단에 사용 |
 
-**둘을 먼저 비교한 결론.** Zhou et al.은 N1 질문의 **긍정 쪽 답을 이미 준다.** 완전자료 법칙이 불변이고 target mask가 MCAR(또는 관측 지시자 + v-MAR)이면, target 비율로 보정한 인공 dropout(Alg. 1)이 라벨 target 분포를 재현하므로 **어떤 모델의 순위든** 식별된다. Stokes et al.은 **부정 쪽의 핵심 재료를 이미 준다.** MNAR이면 관측자료 조건부가 이동한다. 둘 다 (i) 완전 관측이지만 S로 선택된 source, (ii) 두 고정 모델의 위험 차 부호, (iii) Y 의존 획득에 대한 민감도·부분식별, (iv) 같은 실제 코호트에서의 인공 대 자연 순위 비교를 다루지 않는다.
+**둘을 먼저 비교한 결론.**
+
+* Zhou et al.은 N1 질문의 **긍정 쪽 답을 좁은 조건에서** 준다. 완전자료 법칙이 불변이고 target mask가 **UCAR**(특징별 독립·상수 비율, 지시자 없음)이면, target 비율로 보정한 인공 dropout(Alg. 1)이 라벨 target 분포를 재현한다. 따라서 **어떤 모델의 순위든** 식별된다. 완전 관측 source는 m_s = 0인 특수 사례다.
+* 관측 지시자 + v-MAR에서는 Prop. 1이 (x̃, ξ)에 대한 공변량 이동으로 환원할 뿐이다. 이 경우 상수 비율 재마스킹(Alg. 1)은 충분하지 않고, 공유 support 위의 가중치와 X0 조건부 masking이 필요하다.
+* Stokes et al.은 **부정 쪽의 재료**를 준다. X에 대한 MNAR이면 관측자료 조건부가 이동한다.
+* 둘 다 다루지 않는 것: (i) M의 함수로 선택된 완전 관측 source(S = f(M)), (ii) 두 고정 모델의 위험 차 부호, (iii) Y 의존 획득에 대한 민감도·부분식별, (iv) 같은 실제 코호트에서의 인공 대 자연 순위 비교.
 
 **N1 후보 기여별 선행연구 판정.** 문헌 조사 workflow(에이전트 6개 군집 조사, 종합, 12개 반박 에이전트)의 판정:
 
 | 후보 | 이미 하는 선행연구 | 남는 새로움 |
 |---|---|---|
-| C1 S/M 분리와 dropout–배포 격차의 3항 분해 | 분해 기법: Zhang et al. (ICML 2023), DISDE (Cai, Namkoong, Yadlowsky 2023). S/M 개념 구분: Zamanian et al. (J Pers Med 2024) | marginal. 두 모집단 설계에 적용한 것뿐 |
-| C2 최소 반례 + 가정 사다리 | 비수송성: Stokes App. A, Rockenschaub et al. (2024) Thm 1·Cor. 1. 그래프 비식별: Nabi et al. (2020), Mohan & Pearl (2021) | marginal. 순위 반전은 한 줄짜리 따름정리 |
-| C3 위험 **차**에 대한 odds-ratio 민감도 경계, 유병률 LP, bootstrap, 붕괴 Γ* | 두 정책 성능 **차**의 결합 구간(MSM/Rosenbaum Γ, DR, bootstrap): Guerdan, Coston, Holstein, Wu (ICML 2024). 수송된 위험의 tilt 민감도: Steingrimsson, Robertson, Dahabreh (Biometrics 2024). 기준선 대비 minimax regret: Kallus & Zhou (NeurIPS 2018). 관측되지 않은 교란 아래 예측 알고리즘 성능 평가 경계: Rambachan, Coston, Kennedy. percentile bootstrap 민감도: Zhao, Small, Bhattacharya (JRSS-B 2019). 유병률 제약 LP: Dorn & Guo (sharp IPW 민감도) 유형. 반박 에이전트 2개 모두 "already done, high confidence" | **marginal.** 이진 Y·점별 손실에서 위험 차는 p_T에 선형이므로 날카로운 경계는 구간 끝점 평가이고, 유병률 제약을 더하면 연속 배낭 LP다. mask 패턴별 tilt라는 대입만 새롭다 |
-| C4 실제 코호트에서 인공 대 자연 순위를 통제된 방식으로 비교 | 현상 자체는 표로 보임: DrFuse (AAAI 2024), MedFuse (MLHC 2022), CareBench (2026), Groenwold (2020) | **moderate.** 고정 적격 모집단·cutoff, 같은 모델, 쌍별 부호 검정과 CI, 그리고 표본 선택·유병률 조정을 먼저 적용한 통제 비교는 확인된 선행연구가 없음 |
+| C1 S/M 분리와 dropout–배포 격차의 3항 분해 | 분해 기법: Zhang et al. (ICML 2023), DISDE (Cai, Namkoong, Yadlowsky 2023). 가장 직접적인 선행은 Feng, Singh, Xia, Subbaswamy, Gossmann (NeurIPS 2024)의 계층적 분해 p(W)p(Z∣W)p(Y∣W,Z)이며 CI가 있다. 이 보고서의 분해는 W=M, Z=X⊙M인 사례다. S/M 개념 구분: Zamanian et al. (J Pers Med 2024) | marginal. 두 모집단 설계에 적용한 것뿐 |
+| C2 최소 반례 + 가정 사다리 | 비식별의 일반 근거: Garg et al. (ICLR 2022) Prop. 1(target 정확도는 p_t(y∣x)가 식별될 때만 식별), Molenberghs et al. (JRSS-B 2008)(모든 MNAR 모형에는 적합도가 같은 MAR 짝이 있음), Nabi et al. (2020), Mohan & Pearl (2021). 비수송성(더 좁은 주장): Stokes App. A, Rockenschaub et al. (2024) Thm 1·Cor. 1 | marginal. 순위 반전은 위 결과의 따름정리 |
+| C3 위험 **차**에 대한 odds-ratio 민감도 경계, 유병률 LP, bootstrap, 붕괴 Γ* | 두 정책 성능 **차**의 결합 구간(MSM/Rosenbaum Γ, DR, bootstrap): Guerdan, Coston, Holstein, Wu (ICML 2024). 수송된 위험의 tilt 민감도: Steingrimsson, Robertson, Voter, Dahabreh (Biometrics 80(4): ujae129, 2024). 기준선 대비 minimax regret: Kallus & Zhou (NeurIPS 2018). 관측되지 않은 교란 아래 예측 알고리즘 성능 평가 경계: Rambachan, Coston, Kennedy. percentile bootstrap 민감도: Zhao, Small, Bhattacharya (JRSS-B 2019). 배포 시 가용성 정책 아래의 손실 추정량과, 가용성 지시자 R에 대한 odds-ratio(exponential tilt) 민감도 δ = log O(R∣healthy)/O(R∣sick): Zamanian et al. (J Pers Med 2024, Eq. 4·10). 유병률로 tilt 범위를 잡는 것: Steingrimsson et al. 유병률 등식을 더한 배낭 LP는 Dorn & Guo(quantile balancing)의 MSM + moment 제약 유사물일 뿐이다. 반박 에이전트 3/3이 "already done"으로 판정했다 | **marginal.** 이진 Y·점별 손실에서 위험 차는 p_T에 선형이므로 날카로운 경계는 구간 끝점 평가이고, 유병률 제약을 더하면 연속 배낭 LP다. mask 패턴별 tilt를 두 모델 차에 대입한 것만 새롭고, 가용성 tilt 자체도 Zamanian et al.에 있다 |
+| C4 실제 코호트에서 인공 대 자연 순위를 통제된 방식으로 비교 | 가장 가까운 선행: Rockenschaub et al. (2024)는 결측 이동에서 "source 성능이 좋은 선택 기준이 아닐 수 있다"고 문제를 제기하고, 반합성 자료(인공 mask)에서 순위 변화를 보였다. 현상 자체는 DrFuse (AAAI 2024), MedFuse (MLHC 2022), CareBench (2026), Groenwold (2020)의 표에도 보인다 | **moderate.** 실제 label·자연 mask·고정 적격 모집단과 cutoff에서, 같은 모델로 쌍별 부호 검정과 CI를 쓰고 표본 선택·유병률 조정을 먼저 적용한 통제 비교는 확인된 선행연구가 없다. 새로움은 위 반합성 주장의 실제 자료 검증이며, 정성적 발견 자체는 새롭지 않다 |
 
 미검증 인용과 반박 에이전트의 판정 원문은 `results/literature/literature_workflow.json`에 있다(예: Stokes et al.의 학회 게재 여부는 확인 불가, arXiv v1만 확인).
 
@@ -130,7 +135,7 @@ X0∈{0,1}은 항상 관측된다. 배포 모집단에서 P(X0=1)=1/2, P(M=1∣X
 * 배포 진실: A **143/800**, B 207/800 → A 우위
 * source 법칙을 P_T(x0)/P_S(x0)로 **명시적으로** 재가중하고 P_T(M∣x0)로 mask하면 진실과 정확히 같다. 이것은 M ⟂ (X1, Y) ∣ X0이기 때문이다.
 
-격차는 결측 패턴의 공변량 항에 있다(P_T(x0=1∣M=0)=1/10 대 P_S(x0=1)=9/10). 그 절반은 S(9/10 대 모집단 1/2)에서, 절반은 MAR mask(1/2 대 1/10)에서 온다. 따라서 CE2는 "S만의 반전"이 **아니다.** MAR mask를 MCAR dropout으로 평가하는 실패(Zhou Prop. 1의 영역)를 완전사례 선택이 **증폭**한 것이다.
+격차는 결측 패턴의 공변량 항에 있다(P_T(x0=1∣M=0)=1/10 대 P_S(x0=1)=9/10). 그 절반은 S(9/10 대 모집단 1/2)에서, 절반은 MAR mask(1/2 대 1/10)에서 온다. 따라서 CE2는 "S만의 반전"이 **아니다.** covariate 의존(v-MAR) mask를 MCAR dropout으로 평가하는 실패를 완전사례 선택이 **증폭**한 것이다. Zhou Prop. 1이 다루는 기전이지만, 완전사례 source에는 불완전 패턴의 support가 없어 그 (x̃, ξ) IW는 정의되지 않는다. 복구는 완전사례 → 모집단 IPW(ICYM2I 유형)로 한다.
 
 ### 4.2b CE3: S만으로 생기는 반전 (target mask는 MCAR)
 
@@ -158,12 +163,12 @@ R_T(f) − R_D^q(f) = Σ_m (P_T(m) − q(m)) E_S[ℓ_m]  (패턴 가중)
 
 | 단계 | 충분조건 | 타당한 평가 규칙 | 근거/선행 |
 |---|---|---|---|
-| L0 | 없음 | 없음. 순위 비식별 (CE1, CE1b) | Stokes App. A, Rockenschaub Thm 1 |
+| L0 | 없음 | 없음. 순위 비식별 (CE1, CE1b) | Garg et al. 2022 Prop. 1, Molenberghs et al. 2008. 비수송성: Stokes App. A, Rockenschaub Thm 1 |
 | L1 | S 없음(무작위 완전 관측 source, 완전자료 법칙 불변) + target MCAR | target **결합 패턴 빈도** dropout (`freq`). 패널별 독립 mask(UCAR)일 때만 `dams_rate`도 타당 | Zhou et al. Thm 5.2 / Alg. 1(UCAR, 지시자 없음)의 특수·기초 사례. 실제 자료에서 결합 빈도와 독립 가정 빈도의 총변동거리는 0.30이다 |
-| L2 | M ⟂ (X_mod, Y) ∣ X0, S는 X0를 통해서만 선택, **양의 확률** P_V(x0)>0 (P_U(x0)>0인 곳) | X0 IW + P_T(M∣X0) mask (`sel`) | Zhou Prop. 1, 표준 IW. CE2·CE3가 L1 규칙의 실패를 보임 |
-| L3 | Y ⟂ M ∣ X_o(m) (패턴별), 양의 확률. 교차 기관 설계에서는 추가로 P(Y∣x_o(m), M=1, S=src) = P(Y∣x_o(m), M=m, S=tgt) | 패턴별 공변량 IW / DM / DR (`pat`,`dm`,`dr`) | L2 ⇒ L3 (weak union). ICYM2I(역방향 IPW), Ulichney & Coston(DML) |
-| L4 | 단위별 odds ratio(p_T : p_S) ∈ [1/Γ, Γ] (또는 panel당 λ, 한쪽 방향) | 위험 **차**의 구간. 0을 배제할 때만 결정 (`aa`) | Guerdan et al. 2024, Steingrimsson et al. 2024 (방법으로서 새롭지 않음) |
-| L4′ | L4 + 유병률 π_T 알려짐 | 연속 배낭 LP 경계 (`theory.diff_bounds_prevalence`; 실증 파이프라인에서는 사용하지 않음) | Dorn & Guo 유형 |
+| L2 | M ⟂ (X_mod, Y) ∣ X0, S는 X0를 통해서만 선택, **양의 확률** P_V(x0)>0 (P_U(x0)>0인 곳) | X0 IW + P_T(M∣X0) mask (`sel`) | 완전사례 → 모집단 IPW(ICYM2I Lemma 1·Cor. 1, 표준 IPW). 완전사례 source는 불완전 패턴에 support가 없으므로 Zhou Prop. 1의 (x̃, ξ) IW는 직접 적용되지 않는다. CE2·CE3가 L1 규칙의 실패를 보임 |
+| L3 | Y ⟂ M ∣ X_o(m) (패턴별), 양의 확률. 교차 기관 설계에서는 추가로 P(Y∣x_o(m), M=1, S=src) = P(Y∣x_o(m), M=m, S=tgt) | 패턴별 공변량 IW / DM / DR (`pat`,`dm`,`dr`) | L2 ⇒ L3 (weak union). ICYM2I(IPW), Ulichney & Coston(DML) |
+| L4 | 단위별 odds ratio(p_T : p_S) ∈ [1/Γ, Γ] (또는 panel당 λ, 한쪽 방향) | 위험 **차**의 구간. 0을 배제할 때만 결정 (`aa`) | Guerdan et al. 2024, Steingrimsson et al. 2024, Zamanian et al. 2024 (방법으로서 새롭지 않음) |
+| L4′ | L4 + 유병률 π_T 알려짐 | 연속 배낭 LP 경계 (`theory.diff_bounds_prevalence`; 실증 파이프라인에서는 사용하지 않음) | MSM + moment 제약(Dorn & Guo 유사); 유병률로 tilt 범위를 잡는 것은 Steingrimsson et al. |
 | L5 | 배포 label n개 | 직접 추정 (`lab_n`) | 가정 없음, 분산만 존재 |
 | (참고) | refreshment 표본 + additive non-ignorable 모형(둘이 함께) | 식별 가능 | Hirano, Imbens, Ridder, Rubin 2001 |
 
@@ -185,7 +190,7 @@ R_T(f) − R_D^q(f) = Σ_m (P_T(m) − q(m)) E_S[ℓ_m]  (패턴 가중)
    * λ와 방향은 격자로 보고한다. 또 **개발 세트 label만으로** 보정한 값으로도 보고한다(§7.5).
    * 유병률 LP(L4′)와 순위 붕괴 Γ*는 `theory.py`에 구현·검증되어 있으나 실증 파이프라인에서는 쓰지 않았다.
 
-선행연구 판정(§3)에 따라 이 방법은 **Guerdan et al. 2024 + Steingrimsson et al. 2024의 mask 패턴별 대입**이다. 새 방법으로 주장하지 않으며, 아래 실험에서 "가정을 명시했을 때 무엇을 결정할 수 있는가"를 보여주는 **도구**로만 쓴다.
+선행연구 판정(§3)에 따라 이 방법은 **Guerdan et al. 2024 + Steingrimsson et al. 2024 + Zamanian et al. 2024의 mask 패턴별 대입**이다. 새 방법으로 주장하지 않으며, 아래 실험에서 "가정을 명시했을 때 무엇을 결정할 수 있는가"를 보여주는 **도구**로만 쓴다.
 
 ## 6. 실제 자료: 적격 모집단, cutoff, 획득 의미 (수행 6–7)
 
@@ -522,6 +527,11 @@ MAR에서 모든 규칙의 τ가 낮은 것은 이 설정에서 후보들의 진
 * **통계 산출:** 수리 집계를 대칭(순 효과)으로 바꿨고, seed 의사반복을 제거하고 무작위 재분할 설계 `rs`를 추가했다.
 * **λ와 비식별 항:** T label로 고른 λ≈1.2를 D 기반 보정으로 교체했다. label 항의 부호 변화 지표를 교정하고 크기를 맞춘 대조를 넣었다.
 * **이론·감사:** CE1의 필요조건 서술을 교정하고 CE1b와 CE3을 추가했다. CE2는 "S만의 반전"이 아니라고 서술을 교정했다. 가정 사다리와 `dams_rate`의 조건을 교정했다. MIMIC demo 감사는 신규·미취소 order만 세도록 고쳤다.
+* **문헌:**
+  * Zhou et al.의 긍정 결과를 UCAR로 한정했다. CE1의 비식별 근거를 Garg et al. 2022와 Molenberghs et al. 2008로 교정했다.
+  * Stokes et al.의 공변량 이동 확장과 Zhou et al. eICU 실패 원인 서술을 교정했다. Steingrimsson et al.의 저자 목록을 교정했다.
+  * 누락된 선행을 추가했다: Feng et al. 2024(C1), Zamanian et al.의 가용성 tilt(C3), Rockenschaub et al.(C4).
+  * L2의 IPW를 ICYM2I로 귀속했다.
 
 모든 수치는 수정 후 재실행 결과다. 수정 전 결과는 git 이력(`ad0be54`)에 남아 있다.
 
