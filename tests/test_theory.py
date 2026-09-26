@@ -61,3 +61,16 @@ def test_one_sided_down_is_inside_two_sided():
     lo2, _, up2 = T.diff_bounds(a0, a1, b0, b1, ps, 3.0)
     lo1, _, up1 = T.diff_bounds(a0, a1, b0, b1, ps, 3.0, direction="down")
     assert lo2 - 1e-12 <= lo1 <= up1 <= up2 + 1e-12
+
+
+def test_ce1b_complete_case_source_no_label_dependence_still_reverses():
+    c = T.ce1b()
+    assert c["W1"]["complete_case_law"] == c["W2"]["complete_case_law"]
+    assert c["W1"]["unlabeled_law"] == c["W2"]["unlabeled_law"]
+    assert c["W1"]["R_T(A)"] < c["W1"]["R_T(B)"] and c["W2"]["R_T(B)"] < c["W2"]["R_T(A)"]
+
+
+def test_ce3_selection_only_flip_repaired_by_reweighting():
+    c = T.ce3()
+    assert c["R_drop_rate_matched(B)"] < c["R_drop_rate_matched(A)"] and c["R_T(A)"] < c["R_T(B)"]
+    assert c["R_reweighted(A)"] == c["R_T(A)"] and c["R_reweighted(B)"] == c["R_T(B)"]

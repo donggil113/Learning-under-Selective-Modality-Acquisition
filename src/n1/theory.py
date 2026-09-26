@@ -106,6 +106,66 @@ def ce1():
     return out
 
 
+def ce1b():
+    """CE1 with the report's actual information set: V = COMPLETE CASES of the
+    deployment population (not a random fully observed source).  Masking depends
+    only on the modality value X (no Y term, so Y is independent of M given X).
+    Both worlds give the same complete-case law P(X, Y | M=1) and the same
+    unlabeled law P_T(M, X*M), yet the ranking of the two fallbacks is opposite:
+    with a complete-case source even 'no label dependence' does not identify the
+    missing-pattern label law.  (Construction due to the adversarial review.)"""
+    pyx = {1: F(3, 4), 0: F(1, 4)}                     # P(Y=1 | X) in both worlds
+    worlds = {"W1": ({1: F(1, 2), 0: F(1, 2)}, {1: F(1, 2), 0: F(1, 2)}),          # (P(X), r(x))
+              "W2": ({1: F(3, 8), 0: F(5, 8)}, {1: F(2, 3), 0: F(2, 5)})}
+    cA, cB = F(1, 2), F(3, 8)
+    out = {}
+    for w, (px, r) in worlds.items():
+        pm1 = sum(px[x] * r[x] for x in (0, 1))
+        cc_law = {(x, y): px[x] * r[x] * (pyx[x] if y else 1 - pyx[x]) / pm1 for x in (0, 1) for y in (0, 1)}
+        u_law = {("obs", x): px[x] * r[x] for x in (0, 1)} | {("mis",): 1 - pm1}
+
+        def risk(c):
+            tot = F(0)
+            for x in (0, 1):
+                for y in (0, 1):
+                    pxy = px[x] * (pyx[x] if y else 1 - pyx[x])
+                    tot += pxy * r[x] * (y - pyx[x]) ** 2 + pxy * (1 - r[x]) * (y - c) ** 2
+            return tot
+        out[w] = {"complete_case_law": {str(k): v for k, v in cc_law.items()},
+                  "unlabeled_law": {str(k): v for k, v in u_law.items()}, "R_T(A)": risk(cA), "R_T(B)": risk(cB)}
+    return out
+
+
+def ce3():
+    """S only: the source is a fully observed sample from ANOTHER population
+    (e.g. another site) with P_S(X0=1)=9/10, the deployment has P_T(X0=1)=1/10,
+    P(Y | X0, X1) and P(X1 | X0) are shared (pure covariate shift), and the
+    deployment mask is MCAR with rate 1/2.  Rate-matched dropout on the source
+    scores the missing-pattern fallbacks on the source's X0 mix; the deployment
+    scores them on its own.  Reweighting by P_T(x0)/P_S(x0) restores the ranking."""
+    pS0 = {0: F(1, 10), 1: F(9, 10)}
+    pT0 = {0: F(9, 10), 1: F(1, 10)}
+    p1 = {0: F(1, 2), 1: F(1, 2)}
+    py = {(0, 0): F(1, 20), (0, 1): F(9, 20), (1, 0): F(11, 20), (1, 1): F(19, 20)}
+    r = F(1, 2)
+    fb = {"A": F(3, 10), "B": F(7, 10)}
+
+    def risk(model, pop, weight=lambda a: F(1)):
+        tot = F(0)
+        for a in (0, 1):
+            for b in (0, 1):
+                w = pop[a] * (p1[a] if b else 1 - p1[a]) * weight(a)
+                p = py[(a, b)]
+                obs = p * (1 - p) ** 2 + (1 - p) * p ** 2
+                mis = p * (1 - fb[model]) ** 2 + (1 - p) * fb[model] ** 2
+                tot += w * (r * obs + (1 - r) * mis)
+        return tot
+    return {"R_drop_rate_matched(A)": risk("A", pS0), "R_drop_rate_matched(B)": risk("B", pS0),
+            "R_T(A)": risk("A", pT0), "R_T(B)": risk("B", pT0),
+            "R_reweighted(A)": risk("A", pS0, lambda a: pT0[a] / pS0[a]),
+            "R_reweighted(B)": risk("B", pS0, lambda a: pT0[a] / pS0[a])}
+
+
 def ce2():
     """Population selection S (complete-case source) vs mask M under MAR.
 
@@ -118,9 +178,12 @@ def ce2():
     marginal P_S(Y=1)=7/10 (what a dropout-trained constant fallback learns on
     the complete cases), A to 3/10.  Rate-matched dropout on the complete cases
     ranks the fallbacks on the S-population (90% X0=1), the deployment ranks
-    them on the missing-pattern population (90% X0=0); reweighting source units
-    by P_T(x0)/P_S(x0) and masking them with P_T(M|x0) restores the target
-    risk exactly, because no label dependence was assumed.
+    them on the missing-pattern population (90% X0=0).  The gap is a MAR
+    (covariate-dependent) target mask evaluated with MCAR dropout, AMPLIFIED by
+    complete-case selection -- not an S-only effect (see ce3 for S alone).
+    Reweighting source units by P_T(x0)/P_S(x0) and masking them with
+    P_T(M|x0) restores the target risk exactly because M is independent of
+    (X1, Y) given X0 (MAR given X0).
     """
     pT0 = {0: F(1, 2), 1: F(1, 2)}
     r = {0: F(1, 10), 1: F(9, 10)}                   # P(M=1 | X0)
@@ -161,10 +224,26 @@ def ce2():
         "R_drop_rate_matched(A)": risk("A", pS0, lambda a: 1 - pmis_T),
         "R_drop_rate_matched(B)": risk("B", pS0, lambda a: 1 - pmis_T),
     }
-    # identified correction under MAR: reweight source units by P_T(x0)/P_S(x0),
-    # and mask them with P_T(M|x0)
-    res["R_reweighted(A)"] = risk("A", pT0, lambda a: r[a])
-    res["R_reweighted(B)"] = risk("B", pT0, lambda a: r[a])
+    # identified correction under MAR, computed explicitly from the SOURCE law:
+    # each complete-case unit (x0, x1, y) ~ P_S is weighted by P_T(x0)/P_S(x0) and
+    # artificially masked with the target's P_T(M=1 | x0).  Nothing here reads the
+    # target joint law of (X1, Y) -- only P_T(x0) and P_T(M | x0), which are
+    # identified from unlabeled target data.
+    def reweighted(model):
+        tot = F(0)
+        for a in (0, 1):
+            w = pT0[a] / pS0[a]
+            for b in (0, 1):
+                ps_ab = pS0[a] * (p1[a] if b else 1 - p1[a])      # source law of (x0, x1)
+                for y in (0, 1):
+                    pyab = py[(a, b)] if y else 1 - py[(a, b)]
+                    l_obs = (y - pred(model, a, b, True)) ** 2
+                    l_mis = (y - pred(model, a, b, False)) ** 2
+                    tot += ps_ab * pyab * w * (r[a] * l_obs + (1 - r[a]) * l_mis)
+        return tot
+
+    res["R_reweighted(A)"] = reweighted("A")
+    res["R_reweighted(B)"] = reweighted("B")
     return res
 
 
@@ -321,6 +400,19 @@ def verify(seed: int = 0, n_rand: int = 300) -> dict:
     report["ce2_reweighting_recovers"] = (c2["R_reweighted(A)"] == c2["R_T(A)"] and c2["R_reweighted(B)"] == c2["R_T(B)"])
     report["ce2_values"] = {k: str(v) for k, v in c2.items()}
 
+    # CE1b: complete-case source, masking on X only
+    c1b = ce1b()
+    report["ce1b_same_complete_case_law"] = c1b["W1"]["complete_case_law"] == c1b["W2"]["complete_case_law"]
+    report["ce1b_same_unlabeled_law"] = c1b["W1"]["unlabeled_law"] == c1b["W2"]["unlabeled_law"]
+    report["ce1b_opposite_rankings"] = (c1b["W1"]["R_T(A)"] < c1b["W1"]["R_T(B)"]) and (c1b["W2"]["R_T(B)"] < c1b["W2"]["R_T(A)"])
+    report["ce1b_values"] = {w: {k: str(v) for k, v in d.items() if k.startswith("R_")} for w, d in c1b.items()}
+    # CE3: S only, MCAR target
+    c3 = ce3()
+    report["ce3_dropout_prefers_B"] = c3["R_drop_rate_matched(B)"] < c3["R_drop_rate_matched(A)"]
+    report["ce3_target_prefers_A"] = c3["R_T(A)"] < c3["R_T(B)"]
+    report["ce3_reweighting_recovers"] = c3["R_reweighted(A)"] == c3["R_T(A)"] and c3["R_reweighted(B)"] == c3["R_T(B)"]
+    report["ce3_values"] = {k: str(v) for k, v in c3.items()}
+
     # decomposition identity on random finite instances
     worst = 0.0
     for _ in range(n_rand):
@@ -388,6 +480,8 @@ def verify(seed: int = 0, n_rand: int = 300) -> dict:
         report["ce1_same_observed_law"] and report["ce1_same_dropout_estimate"] and report["ce1_dropout_prefers_A"]
         and report["ce1_W1_prefers_A"] and report["ce1_W2_prefers_B"] and report["ce2_dropout_prefers_B"]
         and report["ce2_target_prefers_A"] and report["ce2_reweighting_recovers"]
+        and report["ce1b_same_complete_case_law"] and report["ce1b_same_unlabeled_law"] and report["ce1b_opposite_rankings"]
+        and report["ce3_dropout_prefers_B"] and report["ce3_target_prefers_A"] and report["ce3_reweighting_recovers"]
         and report["decomposition_max_abs_error"] < 1e-12 and report["bounds_violations_random_feasible"] == 0
         and report["bounds_max_gap_vs_LP"] < 1e-7 and report["prevalence_bounds_max_gap_vs_LP"] < 1e-7
         and report["gamma1_collapses"] and report["bounds_nested_in_gamma"])

@@ -32,7 +32,8 @@ LABELS = {"full": "complete cases, no masking", "drop50": "dropout p=0.5", "dams
 def fig_tau(loss="brier"):
     order = list(LABELS)
     fig, ax = plt.subplots(figsize=(8.4, 6.2))
-    for k, (design, col, name) in enumerate((("cc", BLUE, "complete-case cohort → full deployment"),
+    for k, (design, col, name) in enumerate((("cc", BLUE, "challenge sets, 6 orderings"),
+                                             ("rs", "#1baf7a", "random re-partitions"),
                                              ("icu", ORANGE, "surgical complete cases → medical ICUs"))):
         runs = load_runs(design)
         if not runs:
@@ -41,7 +42,7 @@ def fig_tau(loss="brier"):
         for i, e in enumerate(order):
             v = [r[loss]["agreement"][e]["kendall_tau"] for r in runs if e in r[loss]["agreement"]]
             if v:
-                ys.append(i + (k - 0.5) * 0.3)
+                ys.append(i + (k - 1) * 0.25)
                 m.append(np.mean(v))
                 s.append(np.std(v))
         ax.errorbar(m, ys, xerr=s, fmt="o", color=col, ms=6, lw=1.5, capsize=0, label=f"{name} ({len(runs)} runs)",
@@ -55,7 +56,7 @@ def fig_tau(loss="brier"):
     ax.set_title("Which evaluation reproduces the deployment ranking\nof 29 candidate models?", loc="left", fontsize=11)
     fig.tight_layout(rect=(0, 0.07, 1, 1))
     h, l = ax.get_legend_handles_labels()
-    fig.legend(h, l, loc="lower center", ncol=2, fontsize=8.5)
+    fig.legend(h, l, loc="lower center", ncol=3, fontsize=8)
     fig.savefig(FIG / f"kendall_tau_{loss}.png", dpi=160)
     plt.close(fig)
 
@@ -65,9 +66,10 @@ def fig_or(summary):
     rows = sorted(rows, key=lambda r: (r["n_missing_panels"], r["pattern(ABG,ALINE,LACT,LIVER)"]))
     fig, ax = plt.subplots(figsize=(7.6, 6.0))
     for i, r in enumerate(rows):
-        lo, hi = [float(x) for x in r["or_95ci"].strip("[]").split(",")]
+        b, se = r["log_or_ens"], r["se_ens"]
+        lo, hi = np.exp(b - 1.96 * se), np.exp(b + 1.96 * se)
         ax.plot([lo, hi], [i, i], color=BLUE, lw=2, solid_capstyle="round")
-        ax.plot(r["odds_ratio"], i, "o", color=BLUE, ms=6, markeredgecolor=SURFACE, markeredgewidth=1.5)
+        ax.plot(np.exp(b), i, "o", color=BLUE, ms=6, markeredgecolor=SURFACE, markeredgewidth=1.5)
     ax.axvline(1, color=TEXT2, lw=0.8)
     ax.set_xscale("log")
     ax.set_xticks([0.25, 0.5, 1, 2])
@@ -77,7 +79,7 @@ def fig_or(summary):
     ax.set_yticklabels([f"{r['pattern(ABG,ALINE,LACT,LIVER)']}  (n={r['n']:,})" for r in rows], fontsize=8.5)
     ax.invert_yaxis()
     ax.set_xlabel("odds ratio of death vs complete-case model\ngiven the recorded features (95% CI, log scale)")
-    ax.set_title("Recording is label-dependent beyond the recorded features\n"
+    ax.set_title("Death odds vs complete-case (LR+HGB) model, per recording pattern\n"
                  "bits = ABG, A-line, lactate, liver; 1111 = negative control", loc="left", fontsize=10)
     fig.tight_layout()
     fig.savefig(FIG / "label_dependence_or.png", dpi=160)

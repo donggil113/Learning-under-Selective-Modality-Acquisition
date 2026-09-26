@@ -1,5 +1,5 @@
 {
- "note": "Outputs of the literature workflow (6 sweep agents, 1 synthesis agent, adversarial refutation agents). Each paper entry carries its own verification status; entries marked UNVERIFIED or \"search snippet only\" must be checked before citation.",
+ "note": "Outputs of the literature workflow (6 sweep agents, 1 synthesis agent, 12 adversarial refutation agents: 4 candidate contributions x 3 literature lenses). Each paper entry carries its own verification status; entries marked UNVERIFIED or \"search snippet only\" must be checked before citation.",
  "sweeps": [
   {
    "cluster": "Domain Adaptation under Missingness Shift (DAMS; Zhou, Balakrishnan & Lipton, AISTATS 2023) and follow-ups on missingness-mechanism shift",
@@ -1883,6 +1883,302 @@
    ],
    "residual_gap": "No single paper I verified applies the exact bundle to missing INPUT modalities. That bundle is: an OR band on the target P_T(Y|x_obs, M=m), separate for each mask pattern, around a nominal P_S(Y|x_obs) marginalized from a fully observed source by dropout; a joint two-model risk-difference interval; a target-prevalence equality constraint; bootstrap CIs; and a ranking breakdown Γ*. Guerdan et al. works with missing labels/potential outcomes under decisions, not missing input features, and has no prevalence constraint. Steingrimsson et al. has prevalence anchoring but only a single tilt, for one model and without masks. Zamanian et al. has an acquisition OR tilt but no two-model bounds or inference.\n\nThat remaining gap is an instantiation, not a method. With binary Y and pointwise losses the risk difference is linear in each p_T(x), so the sharp interval is just endpoint evaluation by the sign of l_A(y)−l_B(y), exactly Guerdan's agree/disagree cancellation. The prevalence-constrained version is the continuous-knapsack/quantile-threshold solution (Dorn & Guo; Nie, Imbens & Wager). The bootstrap is Zhao, Small & Bhattacharya / Dorn & Guo. The breakdown value is standard global-sensitivity practice (Steingrimsson; Rosenbaum-style).\n\nThe only elements with possible residual novelty are unverified as prior art either way:\n(a) separate sensitivity parameters for cohort selection S (Γ_S, cf. Sahoo, Lei & Wager) and acquisition M (Λ_M), with a joint two-parameter ranking-breakdown frontier under identifiable calibration constraints. I could not check breakdown-frontier work such as Masten & Poirier because the search budget was exhausted.\n(b) an empirical demonstration that such bounds decide more model pairs correctly than a dropout+bootstrap baseline given the same information.\n\nThe repository's own real-data result (docs/REPORT.md §7.5, criterion (c)) says (b) fails on PhysioNet 2012. C3 as stated should therefore be treated as not new, consistent with a NO_GO on the method; any novelty would have to come from (a) plus a positive empirical result, neither of which C3 currently contains.",
    "confidence": "high"
+  },
+  {
+   "candidate_id": "C3",
+   "already_done": true,
+   "prior_work": [
+    {
+     "title": "Robust Design and Evaluation of Predictive Algorithms under Unobserved Confounding (Rambachan, Coston, Kennedy), arXiv 2212.09844 v6, Nov 2025 (earlier title: 'Counterfactual Risk Assessments under Unmeasured Confounding')",
+     "url": "https://arxiv.org/abs/2212.09844",
+     "verification": "Full PDF downloaded this session and text extracted with pymupdf. I read the abstract, the introduction, Assumption 2.1, Lemma 2.1 (closed-form sharp bounds on perf(s;beta)), Sec. 4 (linear-fractional programs made linear via Charnes-Cooper, debiased cross-fitted estimators), footnote 8 (the 'identification breakdown point Gamma*', estimated as the smallest Gamma whose (1-alpha) confidence set contains 0) and App. E.1 (the MSM odds-ratio bound Lambda and its link to Assumption 2.1).",
+     "how_it_covers": "It partially identifies any 'overall performance' functional perf(s;beta)=E[beta0(X;s)+beta1(X;s)Y*]. beta0 and beta1 are arbitrary researcher-chosen functions of X. The bounds hold when P(Y*=1|X,D=0) may differ from P(Y*=1|X,D=1) within bounding functions, and the MSM odds-ratio (Lambda) model is one case. The sharp bounds are closed form: the extreme delta is chosen by the sign of beta1(X). For binary Y, the loss difference of two fixed predictors f1(x_obs,m), f2(x_obs,m) always has the form a(x_obs,m)+b(x_obs,m)Y. So C3's sharp bound on R_T(f1)-R_T(f2) under an odds-ratio model is exactly this lemma, with D relabeled as source vs. target pattern m and X coarsened to x_obs(m). The paper also has LP formulations for class-specific metrics, doubly robust inference with CIs, and the breakdown value Gamma* for a performance DIFFERENCE (an income-group disparity, with Gamma*=1.69 reported). C3's 'breakdown Gamma*' and 'LP' components are therefore already here."
+    },
+    {
+     "title": "Predictive Performance Comparison of Decision Policies Under Confounding (Guerdan, Coston, Holstein, Wu), ICML 2024, PMLR 235",
+     "url": "https://arxiv.org/abs/2404.00848",
+     "verification": "arXiv HTML v2 read this session through a summarizer that returned verbatim quotes: the abstract; the delta-regret interval defined as a bound on the difference m(v0*,v1,pi) - m(v0*,v1,pi0); Theorem 4.3 on tightness versus differencing per-policy bounds; support for MSM, Rosenbaum Gamma, IV and proximal assumptions; 95% bootstrap CIs with cross-fitting; non-identification from selective labels.",
+     "how_it_covers": "It provides a joint partial-identification interval for the DIFFERENCE in predictive performance between two policies under an MSM/Rosenbaum odds-ratio model. This is provably tighter than differencing per-model bounds, because regions where the two policies agree cancel. It includes finite-sample estimation and bootstrap CIs. That is C3's 'two-model risk-difference bounds + bootstrap CI' idea. Only the source of missing Y differs: past decisions here, the acquisition pattern in N1."
+    },
+    {
+     "title": "Sensitivity analysis for studies transporting prediction models (Steingrimsson, Robertson, Voter, Dahabreh), Biometrics 80(4):ujae129, 2024",
+     "url": "https://arxiv.org/abs/2306.08084",
+     "verification": "Europe PMC core record (PMID 39575627, DOI 10.1093/biomtc/ujae129) fetched this session, with the abstract read verbatim. The detail that the tilt is tied to the target marginal outcome probability comes from the synthesis's read of the arXiv text; I did not re-check it here.",
+     "how_it_covers": "This is exactly N1's access structure: covariates and outcomes in the source, covariates but no outcomes in the target. It uses an exponential-tilt (odds-ratio) sensitivity model for P(Y|X,target) relative to P(Y|X,source) and gives identification, estimators and large-sample theory for the target risk of a fixed model. Making the tilt depend on the pattern m (treat M as a covariate) and anchoring it to target prevalence reproduces C3's sensitivity model and 'prevalence constraint'. The risk difference of two models under a fixed tilt follows directly."
+    },
+    {
+     "title": "Analysis of Missingness Scenarios for Observational Health Data (Zamanian et al.), J Pers Med 14(5):514, 2024",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC11122060/",
+     "verification": "PMC page fetched this session. Quoted: the deployment loss E_{pi_new}[(y - f(x*, r_X; w))^2] for deployment 'in an environment with different missingness scenarios', and the sensitivity parameter delta = log O(R|healthy)/O(R|sick) (exponential tilting of outcome-dependent acquisition), with ranges 'inferred based on guidelines, protocols, and referring to attending physicians'.",
+     "how_it_covers": "It already puts an outcome-dependent acquisition odds-ratio tilt on the deployment loss of a prediction model under a changed feature-measurement policy, with clinically elicited ranges. This is the 'acquisition-aware' odds-ratio sensitivity idea for missing INPUTS in a clinical journal. It does not bound a two-model difference or use an LP."
+    },
+    {
+     "title": "Assessable and interpretable sensitivity analysis in the pattern graph framework for nonignorable missingness mechanisms (Zamanian, Ahmidi, Drton), Stat Med 2023, doi:10.1002/sim.9920",
+     "url": "https://doi.org/10.1002/sim.9920",
+     "verification": "Europe PMC core record (PMID 37759370) fetched this session and the abstract read.",
+     "how_it_covers": "It gives pattern-specific exponential-tilt sensitivity analysis for nonignorable missingness, with tilts chosen and interpreted through real-world clinical quantities and validated on MIMIC-III. Mask-pattern-indexed odds-ratio tilts with elicited ranges, the parameterisation C3 uses, are therefore prior art in Stat Med. It targets the full-data law, not model ranking."
+    },
+    {
+     "title": "Covariate Balancing Sensitivity Analysis for Extrapolating Randomized Trials across Locations (Nie, Imbens, Wager), arXiv 2112.04723",
+     "url": "https://arxiv.org/abs/2112.04723",
+     "verification": "arXiv abstract page fetched this session.",
+     "how_it_covers": "It is a transport sensitivity analysis in which bounds from an optimisation over sensitivity-model weights are sharpened by adding known target moment (balancing) constraints. This is the same device as C3's 'prevalence constraint LP', a known target marginal added as a linear constraint, though in a treatment-effect rather than a prediction-risk setting."
+    },
+    {
+     "title": "Evaluating Model Robustness and Stability to Dataset Shift (Subbaswamy, Adams, Saria), AISTATS 2021",
+     "url": "https://arxiv.org/abs/2010.15100",
+     "verification": "Existence confirmed this session through the arXiv author listing (2010.15100). The content summary is taken from the synthesis's full-PDF read, not re-read here.",
+     "how_it_covers": "It gives worst-case risk of clinical models under a shift in lab-test ordering, i.e., an acquisition (M) shift, with debiased estimation and CIs, using natural test ordering. This is the per-model version of acquisition-aware robust evaluation."
+    }
+   ],
+   "residual_gap": "Every methodological component of C3 is published. Sharp bounds on a linear-in-Y performance functional under an odds-ratio/MSM model, with closed-form extremes by the sign of beta1 and LP versions: Rambachan-Coston-Kennedy. A two-model risk-difference interval that is tighter than differencing, with bootstrap CIs: Guerdan et al. The breakdown value Gamma* for a performance difference: Rambachan footnote 8. Tilting P_T(Y|X) against a labeled source in the source-labeled, target-unlabeled transport design, anchored to target prevalence: Steingrimsson et al. 2024. Target-moment constraints to sharpen bounds: Nie-Imbens-Wager. Outcome-dependent acquisition odds-ratio tilts for deployment loss under a changed measurement policy, and pattern-specific tilts with elicited ranges: Zamanian et al. 2024 and 2023. For binary Y, the loss difference of two predictors is a(x_obs,m)+b(x_obs,m)Y. C3's bound is therefore Rambachan's Lemma 2.1 with D relabeled as (source vs. target pattern m) and X coarsened to x_obs(m), plus one linear prevalence constraint. No new estimator, identification result or sharpness argument is needed.\n\nI found no single paper that applies this machinery to missing INPUT modalities with (a) a nominal P_S(Y|x_obs(m)) obtained by marginalising a fully observed source, (b) a separate cohort-selection parameter Gamma_S next to the acquisition parameter Lambda_M (C3 as stated has only one tilt, so this is not in C3 either), and (c) an empirical check of whether the ranking breakdown Gamma* separates artificial-dropout from natural-missingness rankings on real data. The remaining gap is an instantiation and empirical audit, not a methods contribution. C3 should be presented as an application of Guerdan/Rambachan/Steingrimsson bounds, citing them, and not as a new 'acquisition-aware model selection' method.\n\nTwo caveats. First, the prevalence constraint uses target label information (P_T(Y)); if target labels are public, the partial-identification framing does not apply at all. Second, the search was limited: the WebSearch budget was already exhausted, so I searched through the Europe PMC REST API, arXiv listing search and Crossref, while Semantic Scholar and OpenAlex were rate-limited. A 2025-2026 conference paper that applies MSM difference bounds specifically to feature-acquisition shift could have been missed.",
+   "confidence": "medium"
+  },
+  {
+   "candidate_id": "C4",
+   "already_done": false,
+   "confidence": "medium",
+   "prior_work": [
+    {
+     "title": "CareBench: When Does Multimodal Learning Help in Healthcare? A Benchmark on EHR and Chest X-Ray Fusion (Yin et al., arXiv 2602.23614, 2026)",
+     "url": "https://arxiv.org/abs/2602.23614",
+     "verification": "Full arXiv PDF downloaded and text-searched in this session. It evaluates the same methods on the matched subset (7,149 stays with CXR) and on the base cohort (26,947 stays, about 75% without CXR). A search for 'prevalence', 'reweight', 'selection bias', 'case mix', 'distribution shift' and 'label distribution' returned 0 hits in the analysis text.",
+     "how_it_covers": "Shows on real data that method rankings differ between complete-case and naturally missing evaluation, and reports a 0-80% controlled missingness sweep on the matched set. It does not fix the population, compute rank agreement, run pairwise sign tests, or test selection or prevalence explanations. It covers only the existence of the phenomenon."
+    },
+    {
+     "title": "MedFuse: Multi-modal fusion with clinical time-series data and chest X-ray images (Hayat, Geras, Shamout), MLHC 2022, PMLR 182",
+     "url": "https://proceedings.mlr.press/v182/hayat22a.html",
+     "verification": "PMLR PDF downloaded and text-searched in this session. App. A.4 (CXR randomly dropped from paired test samples: AUROC falls) and App. A.6 (share of naturally uni-modal test samples varied) were read directly. 'Prevalence' appears only in label tables, never as an explanation.",
+     "how_it_covers": "A single-model case in which artificial dropout and natural missingness move performance in opposite directions. There is no ranking audit and no test of whether the contrast comes from case mix or prevalence. It covers the phenomenon, not the controlled test."
+    },
+    {
+     "title": "Domain Adaptation under Missingness Shift (Zhou, Balakrishnan, Lipton), AISTATS 2023",
+     "url": "https://arxiv.org/abs/2211.02093",
+     "verification": "arXiv v3 PDF downloaded and text-searched in this session. The eICU real-data section and the Discussion sentence were read verbatim.",
+     "how_it_covers": "On real eICU data it runs calibrated artificial re-masking and reweighting adjustments against a naturally missing target, and they fail. The authors only speculate that 'selection bias (very different cohort), label shift, or changes in prevalences of disease' may dominate. They explicitly leave 'finding appropriate real world empirical testbeds and analyzing sensitivity to assumption violations' to future work. So they name C4's null explanations but never test them."
+    },
+    {
+     "title": "Beyond Random Missingness: Clinically Rethinking for Healthcare Time Series Imputation (Qian, Yang, Du, Wang, Dobson, Ibrahim), arXiv 2405.17508 v3",
+     "url": "https://arxiv.org/abs/2405.17508",
+     "verification": "arXiv v3 PDF downloaded and text-searched in this session. The masking strategies (augmentation vs overlay, RMOD etc.) and the downstream mortality evaluation were read directly. 'Rank', 'Kendall', 'prevalence' and 'selection' returned 0 hits.",
+     "how_it_covers": "Uses the same PhysioNet 2012 data as N1 and shows that the choice of artificial masking protocol changes imputation-method results, and that imputation accuracy does not track downstream mortality prediction. It never compares fixed predictors under artificial dropout against natural missingness in a fixed population, and it tests no selection or class-balance null."
+    },
+    {
+     "title": "Rescuing missing data in connectome-based predictive modeling (Liang et al.), Imaging Neuroscience 2024",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC12224408/",
+     "verification": "Europe PMC full-text XML fetched and read in this session (Methods 2.3.1-2.3.4, Results 3.1-3.2).",
+     "how_it_covers": "The closest real-data design outside EHR. It compares strategies under simulated MCAR/MNAR deletion on the complete-case HCP subset with the same strategies under real missing connectomes in the full cohorts, and the rankings differ: task-average imputation is best on real data but worst under simulated MNAR. However, the missingness affects training, test sets are mostly complete cases, there is no formal rank-agreement test, and no case-mix or selection explanation is examined."
+    },
+    {
+     "title": "Collaborative prediction and ranking with non-random missing data (Marlin & Zemel), ACM RecSys 2009",
+     "url": "https://www.cs.toronto.edu/~zemel/documents/acmrec2009-MarlinZemel.pdf",
+     "verification": "Crossref record (DOI 10.1145/1639714.1639717) and full PDF fetched and read in this session (Secs. 7-8).",
+     "how_it_covers": "A real-data ranking reversal between evaluation on randomly selected (MCAR) items and on naturally user-selected (MNAR) items. MM wins on user-selected items; MM/Logit-vd wins on random items. The missing variable, however, is the label (the rating), not an input modality, and there is no selection or prevalence decomposition. It is an analog, not coverage."
+    },
+    {
+     "title": "Measuring Robustness to Natural Distribution Shifts in Image Classification (Taori et al.), NeurIPS 2020",
+     "url": "https://arxiv.org/abs/2007.00644",
+     "verification": "arXiv abstract fetched in this session.",
+     "how_it_covers": "The methodological template for 'does synthetic-perturbation evaluation predict natural-shift performance across many models'. It evaluates 204 models and finds little transfer from synthetic to natural shift. It does not address missing modalities, acquisition, S vs M, or prevalence nulls."
+    },
+    {
+     "title": "External validity of risk models: benchmark values to disentangle a case-mix effect from incorrect coefficients (Vergouwe, Moons, Steyerberg), Am J Epidemiol 2010; and A new framework to enhance the interpretation of external validation studies (Debray et al.), J Clin Epidemiol 2015",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC2984249/",
+     "verification": "Both abstracts fetched from Europe PMC in this session (DOIs 10.1093/aje/kwq223 and 10.1016/j.jclinepi.2014.06.018).",
+     "how_it_covers": "Standard clinical-epidemiology tools that ask whether a performance difference between two populations is explained by case mix before blaming the model. These are the 'explained by sample selection' null tests that C4 applies. They are not applied to artificial-vs-natural missingness, so C4 cannot claim the null-explanation procedure itself as new."
+    },
+    {
+     "title": "Avoiding Biased Clinical ML Model Performance Estimates in the Presence of Label Selection (Corbin, Baiocchi, Chen), arXiv 2209.09188",
+     "url": "https://arxiv.org/abs/2209.09188",
+     "verification": "arXiv abstract fetched in this session.",
+     "how_it_covers": "Shows on real lab-ordering data that naive evaluation on a selected population misstates deployment AUROC (by up to 20%), and that weighting by selection probabilities recovers it. This is the S-reweighting null tool, but for label selection rather than input-modality masks."
+    },
+    {
+     "title": "Evaluating Deep Multivariate Imputation Models on Wearable Device Data (Goodman et al.), arXiv 2608.24436, 2026; and The Stationarity Bias (Fathkouhi, Namazi, Shakeri), arXiv 2602.15637, 2026",
+     "url": "https://arxiv.org/abs/2608.24436",
+     "verification": "Both arXiv abstracts fetched in this session.",
+     "how_it_covers": "Goodman et al.: random-point versus real-pattern (template block) masking changes imputer rankings ('model rankings strongly depend on evaluation designs'). Stationarity Bias: uniform random masking implicitly weights evaluation by regime prevalence, which changes model selection. This is close to a 'class-balance explains the ranking' argument. Both concern imputation reconstruction under artificial masks only, with no labeled natural-missingness target and no ranking of predictors."
+    },
+    {
+     "title": "Benchmarking missing-values approaches for predictive models on health databases (Perez-Lebel, Varoquaux, Le Morvan, Josse, Poline), GigaScience 2022",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9012100/",
+     "verification": "Europe PMC full-text XML fetched and text-searched in this session.",
+     "how_it_covers": "A large ranking benchmark (Friedman/Nemenyi/Wilcoxon) of missing-value strategies on natural missingness only. It contrasts itself with simulation-based benchmarks but runs no artificial-mask arm. It shows the natural-only half of C4 exists and the paired comparison does not."
+    },
+    {
+     "title": "Strategies for handling missing data that improve Frailty Index estimation and predictive power (Pridham, Rockwood, Rutenberg), GeroScience 2022",
+     "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9135945/",
+     "verification": "Europe PMC abstract fetched in this session.",
+     "how_it_covers": "Compares bias under real versus simulated block-patterned missingness on NHANES and finds similar magnitudes. It concerns a single score's bias, not model ranking, and has no selection or prevalence decomposition."
+    }
+   ],
+   "residual_gap": "I found no prior work, in missing-data statistics, clinical prediction methodology, multimodal EHR ML, time-series imputation, neuroimaging or recommender systems, that runs a controlled real-data audit of the following kind:\n\n- It fixes one eligible population and one prediction cutoff.\n- It evaluates the same trained models under two regimes: (a) artificial modality/panel dropout at matched rates on the fully observed subset, and (b) natural record-availability masks on the full eligible population, with labels available in both.\n- It quantifies ranking agreement with pairwise risk-difference sign tests and CIs, or with Kendall tau.\n- Before attributing any flip to selective acquisition, it tests whether the flip disappears once simple nulls are removed. The nulls are (i) reweighting the complete-case subset to the eligible population, i.e. the S effect, and (ii) prevalence or class-balance adjustment.\n\nThe pieces exist separately:\n\n- **The phenomenon itself** is already visible in published tables. On EHR+CXR: DrFuse, MedFuse A.4/A.6 and CareBench. On connectomes: Liang et al. 2024. In recommender systems, with the label as the missing variable: Marlin & Zemel 2009.\n- **The null-explanation tools are standard.** Case-mix benchmarks come from Vergouwe 2010 and Debray 2015; selection weighting from Corbin et al. and ICYM2I; prevalence reweighting from standard label-shift methods.\n- **The 'synthetic vs natural transfer' audit template** is Taori et al. 2020.\n- **Selection and prevalence as explanations** are explicitly named but untested in DAMS (Zhou et al.) on eICU. The authors call for exactly this testbed as future work.\n\nWhat is genuinely new is therefore the combination of design and domain. That is an empirical audit contribution of at most moderate size, not a method. It must be framed as a controlled test that cites these works, and not as the discovery that rankings flip.\n\nBecause PhysioNet 2012 target labels are fully public, the audit is an empirical check. No non-identifiability claim applies to it.\n\nIf the repository's own results show that flips vanish after S-reweighting or prevalence adjustment, that finding is itself the contribution. It would also mean a NO_GO for any mechanism-level claim.\n\nSearch limits: the WebSearch budget was already used up, so searches ran through arXiv full-text search, Europe PMC (MEDLINE plus preprints) and Crossref. Papers outside those indexes, such as some IEEE or ACM venues without preprints, may have been missed. That is the reason for medium rather than high confidence."
+  },
+  {
+   "candidate_id": "C4",
+   "already_done": false,
+   "prior_work": [
+    {
+     "title": "MedFuse: Multi-modal fusion with clinical time-series data and chest X-ray images (Hayat, Geras, Shamout), MLHC 2022, PMLR 182",
+     "url": "https://arxiv.org/abs/2207.07027",
+     "verification": "I downloaded the arXiv PDF and extracted the text in this pass. App. A.4, verbatim: 'we randomly dropped the chest X-ray modality for a percentage of samples in the paired test set ... as the percentage of dropping increases, the AUROC decreases for both tasks.' App. A.6, verbatim: 'We observe an increase in the AUROC in the in-hospital mortality task, as the percentage of uni-modal samples increase.' Prevalence appears only as descriptive split statistics (Fig. 1, Table 4).",
+     "how_it_covers": "On real MIMIC-IV/CXR data it shows the phenomenon behind C4 for one model: artificial CXR dropout on the complete (paired) subset moves performance in the opposite direction from adding patients whose CXR is naturally absent. It does not compare rankings across models, does not fix a population, and never tests whether the divergence comes from cohort selection or label prevalence."
+    },
+    {
+     "title": "When Does Multimodal Learning Help in Healthcare? A Benchmark on EHR and Chest X-Ray Fusion (CareBench), arXiv 2602.23614, 2026",
+     "url": "https://arxiv.org/abs/2602.23614",
+     "verification": "arXiv HTML fetched in this pass through a summarizer. Matched subset: 7,149 ICU stays. Base cohort: 26,947 stays, about 75% without CXR. The 0-80% synthetic CXR-missingness sweep is run on the matched subset (Fig. 2). Base-cohort results are reported separately (Table 3).",
+     "how_it_covers": "It reports, for the same method family, results under synthetic missingness on the complete-case cohort and under natural missingness on the full cohort. So both sides of C4's comparison are published. It does not compare rankings between them (no rank correlation or pairwise test), reports no label prevalence, and runs no reweighting or class-balance adjustment."
+    },
+    {
+     "title": "DrFuse: Learning Disentangled Representation for Clinical Multi-Modal Fusion with Missing Modality and Modal Inconsistency (Yao et al.), AAAI 2024",
+     "url": "https://arxiv.org/abs/2403.06197",
+     "verification": "Full text and Table 2 were read in the earlier sweep. I did not re-fetch it in this pass.",
+     "how_it_covers": "Its published table already shows a ranking reversal of the same trained models between the matched (complete-case) test set and the naturally missing full test set: the EHR-only Transformer moves from last to 2nd and MedFuse from 2nd to last. There is no controlled audit, no artificial dropout at a matched rate, and no selection or prevalence explanation."
+    },
+    {
+     "title": "Domain Adaptation under Missingness Shift (Zhou, Balakrishnan, Lipton), AISTATS 2023",
+     "url": "https://arxiv.org/abs/2211.02093",
+     "verification": "I downloaded the arXiv PDF and extracted the text in this pass. Discussion, verbatim: 'we have no particular reason to believe that missingness shift is especially prominent between the hospitals compared to factors such as selection bias (very different cohort), label shift, or changes in prevalences of disease ... analyzing sensitivity to assumption violations are important directions for future work.'",
+     "how_it_covers": "It names, as an untested hypothesis, the alternative explanations that C4 tests: cohort selection and prevalence or label shift rather than the missingness mechanism, for why missingness-shift methods fail on real eICU data. Its semi-synthetic experiments (artificial masks on UCI data) and its real eICU experiment use different data, so it never compares artificial and natural rankings on one population."
+    },
+    {
+     "title": "Mission imputable: Effects of missing data processing on infectious disease detection and prognosis (Roy, Nguyen, Zuniga, Sarhaddi, Lagerspetz, Flores, Nurmi), PLoS One 2026",
+     "url": "https://europepmc.org/article/MED/42507705",
+     "verification": "Europe PMC core record (abstract) fetched in this pass. Verbatim: 'in an intensive care cohort (MIMIC-IV), complete-case analysis initially showed higher raw predictive metrics. However, further analysis demonstrates that this stems from selection bias driven by informative missingness (MNAR), where testing patterns are intrinsically tied to patient severity.'",
+     "how_it_covers": "Real-data evidence on MIMIC-IV that complete-case evaluation is inflated by selection tied to acquisition, which is the 'explained by sample selection' half of C4, applied to comparing imputation strategies. There is no artificial dropout arm, no model-ranking comparison, and no prevalence adjustment test."
+    },
+    {
+     "title": "Population median imputation was noninferior to complex approaches for imputing missing values in cardiovascular prediction models in clinical practice (Berkelmans et al.), J Clin Epidemiol 2022",
+     "url": "https://europepmc.org/article/MED/35066115",
+     "verification": "Europe PMC abstract fetched in this pass. Real registries: NDR, n=419,533; SCI-Diabetes, n=226,953. 'C-statistics were similar across methods'. Differences appeared only when missing data were randomly introduced into age.",
+     "how_it_covers": "A real-data case where the comparison of missing-data methods differs between natural missingness (methods tied) and artificial random masking (methods separate). The artificial masking was applied to a different variable (age, naturally complete), so it is not a rate- or pattern-matched comparison. There is no selection or prevalence analysis."
+    },
+    {
+     "title": "Beyond Random Missingness: Clinically Rethinking for Healthcare Time Series Imputation (Qian, Yang, Du, Wang, Dobson, Ibrahim), arXiv 2405.17508",
+     "url": "https://arxiv.org/abs/2405.17508",
+     "verification": "arXiv abstract fetched in this pass. It uses the PhysioNet Challenge 2012 dataset (the repository's own data) and states that 'masking choices significantly influence model performance', including downstream clinical predictions.",
+     "how_it_covers": "On the same dataset as N1's c2012 pipeline, it shows that rankings depend on which artificial masking protocol is used. It never compares against evaluation on the naturally missing data, and it has no population selection or prevalence analysis. It is prior evidence that dropout-based rankings are protocol-dependent, not a test against natural missingness."
+    },
+    {
+     "title": "ICYM2I: The illusion of multimodal informativeness under missingness (Choi, Jeanselme, Elias, Joshi), ICLR 2026",
+     "url": "https://arxiv.org/abs/2505.16953",
+     "verification": "arXiv abstract fetched in this pass (IPW-based correction of evaluation under source/target modality-missingness differences, with synthetic, semi-synthetic and real-world data). The earlier sweep read the full text: natural CXR present for 12.79% of 98,397 patients.",
+     "how_it_covers": "On real data, naive complete-case evaluation of multimodal value is biased, and observed-covariate IPW (S/M reweighting under MAR) corrects it. This covers the 'reweighting explains the complete-case vs natural gap' tool. It does not examine artificial-dropout vs natural model rankings or class-balance adjustment."
+    },
+    {
+     "title": "A hierarchical decomposition for explaining ML performance discrepancies (Feng, Singh, Xia, Subbaswamy, Gossmann), NeurIPS 2024",
+     "url": "https://arxiv.org/abs/2402.14254",
+     "verification": "arXiv abstract fetched in this pass: aggregate and variable-level decompositions of performance gaps across domains, with asymptotically valid CIs.",
+     "how_it_covers": "A general tool that could attribute an artificial-vs-natural performance or ranking gap to covariate/mask shift versus outcome shift, with inference. It has not been applied to the dropout-vs-natural-missingness question, so it supplies technique, not the empirical finding."
+    },
+    {
+     "title": "Do we Need Dozens of Methods for Real World Missing Value Imputation? (Grzesiak, Muller, Josse, Näf), arXiv 2511.04833, 2025",
+     "url": "https://arxiv.org/abs/2511.04833",
+     "verification": "arXiv abstract fetched in this pass: imputation methods are evaluated 'not only on synthetic missing mechanisms, but also on real-world missingness scenarios' using Imputation Scores.",
+     "how_it_covers": "It compares imputation-method rankings under synthetic and real-world missingness. Evaluation is by distributional imputation scores, not by the labeled risk of predictive models, and there is no selection or prevalence control."
+    },
+    {
+     "title": "Do We Really Need Imputation in AutoML Predictive Modeling? (Paterakis, Fafalios, Charonyktakis, Christophides, Tsamardinos), ACM TKDD 2024",
+     "url": "https://doi.org/10.1145/3643643",
+     "verification": "Crossref record with abstract fetched in this pass: 25 real incomplete datasets plus 10 complete datasets with synthetic missingness.",
+     "how_it_covers": "It draws predictive-ranking conclusions under both native and simulated missingness, but on different datasets. There is no same-population artificial-vs-natural comparison and no selection or class-balance analysis."
+    },
+    {
+     "title": "When Does Self-Supervised Pretraining Help Tabular Models? A Study of Label Scarcity and Missing Data, arXiv 2608.24381, 2026",
+     "url": "https://arxiv.org/abs/2608.24381",
+     "verification": "arXiv abstract and HTML fetched in this pass. SSL 'frequently degrad[es] performance on datasets with high inherent missingness' but is more robust under injected test-time MCAR/MNAR. Injection is applied to all 14 OpenML tasks, 4 of which have native missingness.",
+     "how_it_covers": "Shows that conclusions about a method can diverge between injected and native missingness. It does no same-population ranking comparison, no complete-case selection analysis and no prevalence analysis."
+    },
+    {
+     "title": "Compatibility of Missing Data Handling Methods across the Stages of Producing Clinical Prediction Models (Tsvetanova et al.), arXiv 2504.06799, 2025",
+     "url": "https://arxiv.org/abs/2504.06799",
+     "verification": "I downloaded the arXiv PDF and extracted the text in this pass (Sec. 4, NCORR empirical study). Verbatim: 'Because fully observed NCORR data were not available, we were unable to evaluate the estimand corresponding to deployment requiring complete data.'",
+     "how_it_covers": "On real data it computes 'validation bias', the gap between a validation estimate and deployment performance across missing-data strategies. It has no artificial-dropout-on-complete-cases arm and no selection or prevalence decomposition."
+    },
+    {
+     "title": "Recommendations as Treatments: Debiasing Learning and Evaluation (Schnabel, Swaminathan, Singh, Chandak, Joachims), ICML 2016",
+     "url": "https://arxiv.org/abs/1602.05352",
+     "verification": "arXiv abstract fetched in this pass: unbiased performance estimation from selection-biased (MNAR) observational data via causal-inference propensity techniques, on real-world data.",
+     "how_it_covers": "An analog from recommender systems: evaluation on selectively observed data versus unbiased data, corrected by propensity weighting. The missingness is on labels (ratings), not input modalities, and there is no dropout-on-complete-source design."
+    }
+   ],
+   "residual_gap": "No verified prior work runs C4's controlled audit. What is missing is a design that: (i) fixes one eligible population and one prediction cutoff on real data; (ii) evaluates the SAME trained models under artificial modality dropout on the complete-case subset, matched to the natural rate or pattern, and under natural missingness on the full eligible population; (iii) compares the two rankings with pairwise risk-difference sign tests and CIs, e.g. a Kendall tau plus the count of significant flips; and (iv) tests the null explanations first, namely class-balance (prevalence) adjustment and S-reweighting or DR adjustment on observed covariates, before attributing the remaining flips to label-dependent recording.\n\nThe pieces all exist separately: the phenomenon in published tables (DrFuse, MedFuse, CareBench, Berkelmans), protocol-dependence of artificial masks on PhysioNet 2012 itself (Qian et al.), a selection or prevalence explanation stated but untested (DAMS Discussion) or shown only for complete-case imputation comparisons (Roy et al. 2026), and the correction and decomposition tools (ICYM2I IPW; Feng et al. 2024).\n\nC4's novelty is therefore an empirical audit and replication with null-explanation controls. It is not a methodological contribution, and it must cite all of the above. Two further points narrow it:\n- The repository's own result is largely negative. Dropout ranking reproduces the natural ranking with tau 0.63-0.77, there is about 1 significant flip per run, about half of those are recovered by class balance, and 17/20 cross-ICU flips are recovered by DR.\n- In PhysioNet 2012, M is record availability, not verified acquisition, so any claim about 'selective acquisition' in C4 must be phrased as a claim about recording.\n\nSearch caveat: the WebSearch budget was exhausted, so coverage relied on arXiv full-text search, Europe PMC, Crossref and direct PDF reads. CHIL/MLHC/KDD papers that are not on arXiv could have been missed.",
+   "confidence": "medium"
+  },
+  {
+   "candidate_id": "C4",
+   "already_done": false,
+   "prior_work": [
+    {
+     "title": "When Does Multimodal Learning Help in Healthcare? A Benchmark on EHR and Chest X-Ray Fusion (CareBench), arXiv 2602.23614, 2026",
+     "url": "https://arxiv.org/abs/2602.23614",
+     "verification": "Full PDF downloaded and text-searched in this session (Sec. 4.2, Sec. 5.4 'Robustness to Modality Missingness', Fig. 2, Tables 1 and 3).",
+     "how_it_covers": "The same model zoo is evaluated on two sets: a matched subset with complete modalities (7,149 stays) and a naturally missing base cohort (26,947 stays, about 75% without CXR). A separate controlled sweep then raises CXR missingness synthetically from 0% to 80%. Rankings visibly change: the EHR-only Transformer beats many fusion models on the base cohort, and InfoReg/AUG lead there. So the paper shows that complete-case results, synthetic sweeps and natural-cohort results disagree. It does not fix one eligible population, compare the artificial and natural regimes as a ranking test, give pairwise CIs, or test whether the disagreement comes from cohort selection (matched subset vs base cohort) or from outcome prevalence."
+    },
+    {
+     "title": "MedFuse: Multi-modal fusion with clinical time-series data and chest X-ray images (Hayat, Geras, Shamout), MLHC 2022, arXiv 2207.07027",
+     "url": "https://arxiv.org/abs/2207.07027",
+     "verification": "Full PDF downloaded and text-searched in this session (Sec. 5.1-5.3, App. A.4, A.5, A.6).",
+     "how_it_covers": "App. A.4 randomly drops CXR from the paired test set, and AUROC falls as the drop rate rises. App. A.6 instead adds naturally CXR-absent (uni-modal) test samples, and in-hospital-mortality AUROC rises. This is a direct artificial-vs-natural contrast on real data, with opposite signs. It covers one model only, not a ranking. It offers no explanation beyond noting that only 18.8% and 26.2% of samples are paired. There is no selection or prevalence analysis."
+    },
+    {
+     "title": "Domain Adaptation under Missingness Shift (Zhou, Balakrishnan, Lipton), AISTATS 2023, arXiv 2211.02093",
+     "url": "https://arxiv.org/abs/2211.02093",
+     "verification": "Full PDF downloaded in this session. The real-data experiment paragraph and the Discussion were read verbatim.",
+     "how_it_covers": "The eICU two-hospital experiment applies source re-masking and reweighting adjustments to a naturally missing target, and they fail. The Discussion names 'selection bias (very different cohort), label shift, or changes in prevalences of disease' as likely reasons but does not test them. It says 'Finding appropriate real world empirical testbeds and analyzing sensitivity to assumption violations are important directions for future work.' So the explanatory hypothesis in C4 is already stated, and the test is explicitly left open."
+    },
+    {
+     "title": "Prediction of Survival Outcomes under Clinical Presence Shift: A Joint Neural Network Architecture (Jeanselme, Martin, Sperrin, Peek, Tom, Barrett), arXiv 2508.05472, 2025",
+     "url": "https://arxiv.org/abs/2508.05472",
+     "verification": "Full PDF downloaded and Sec. 6 (weekend-effect case study) read in this session.",
+     "how_it_covers": "Uses a natural experiment on real MIMIC-III data (weekday to weekend admission) where test ordering differs. It compares how models that use or ignore the observation process transport, measured as transfer loss, and model rankings differ between the random split and the shifted setting. It treats the outcome gap as a target shift, handled by evaluating on the same test set, and subsamples to control training size. It covers a real natural observation-process shift with model comparison and some confound control. It has no artificial dropout arm and no S vs M decomposition."
+    },
+    {
+     "title": "Compatibility of Missing Data Handling Methods across the Stages of Producing Clinical Prediction Models (Tsvetanova et al.), arXiv 2504.06799, 2025",
+     "url": "https://arxiv.org/abs/2504.06799",
+     "verification": "Full PDF downloaded in this session. Sec. 4 (NCORR empirical example) and the limitations were read verbatim.",
+     "how_it_covers": "Defines validation bias against deployment performance across handling methods. However, the real NCORR analysis uses natural missingness only, and the paper says: 'Because fully observed NCORR data were not available, we were unable to evaluate the estimand corresponding to deployment requiring complete data.' There is no comparison with artificial dropout on real data."
+    },
+    {
+     "title": "Imputation and missing indicators for handling missing data in the development and deployment of clinical prediction models: a simulation study (Sisk, Sperrin, Peek, van Smeden, Martin), Stat Methods Med Res 32(8):1461-1477, 2023",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/37105540/",
+     "verification": "PubMed abstract fetched in this session.",
+     "how_it_covers": "Simulation work in which missing indicators can be harmful under outcome-dependent missingness. It explicitly assumes the missingness mechanism stays constant across the pipeline and applies the strategies to critical care data. There is no artificial-vs-natural ranking audit."
+    },
+    {
+     "title": "Methods for Addressing Missingness in EHR Data for Clinical Prediction Models: Comparative Evaluation (Digitale et al.), JMIR Med Inform 13:e79307, 2025",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/41237368/",
+     "verification": "PubMed abstract fetched in this session.",
+     "how_it_covers": "A typical instance of the practice N1 questions. It builds a synthetic complete dataset from real PICU EHR data, amputes it under several mechanisms, and ranks handling methods by downstream prediction. It never checks those rankings against the naturally missing data."
+    },
+    {
+     "title": "Do we Need Dozens of Methods for Real World Missing Value Imputation? (Grzesiak, Muller, Josse, Naf), arXiv 2511.04833, 2025; and Time-series ECG Imputation Using a Pattern-Based Masking Framework (Suba et al.), medRxiv 2026, PMID 41646733",
+     "url": "https://arxiv.org/abs/2511.04833",
+     "verification": "arXiv abstract page fetched (Grzesiak) and PubMed abstract fetched (Suba) in this session.",
+     "how_it_covers": "Both compare synthetic or random masking with real-world or observed-pattern missingness, and find that conclusions or error levels differ. Both evaluate imputation quality (distributional scores, MAE), not downstream predictive ranking under deployment missingness."
+    },
+    {
+     "title": "Biases introduced by filtering electronic health records for patients with 'complete data' (Weber et al.), JAMIA 24(6):1134-1141, 2017",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/29016972/",
+     "verification": "PubMed abstract fetched in this session.",
+     "how_it_covers": "Shows on 12M EHR and 7M claims patients that completeness filters change who is in the cohort (for example, older and more often female). This is prior evidence that a complete-case (S-selected) source differs from the eligible population. There is no model evaluation."
+    },
+    {
+     "title": "A new framework to enhance the interpretation of external validation studies of clinical prediction models (Debray et al.), J Clin Epidemiol 68(3):279-289, 2015",
+     "url": "https://pubmed.ncbi.nlm.nih.gov/25179855/",
+     "verification": "PubMed abstract fetched in this session.",
+     "how_it_covers": "Standard method for testing whether a performance difference between two samples is explained by case-mix differences (relatedness and membership analysis). It is prior art for C4's 'explained by sample selection' null check, not for the artificial-vs-natural comparison."
+    },
+    {
+     "title": "Mind the Performance Gap: Examining Dataset Shift During Prospective Validation (Otles et al.), MLHC 2021, arXiv 2107.13964",
+     "url": "https://arxiv.org/abs/2107.13964",
+     "verification": "arXiv abstract page fetched in this session.",
+     "how_it_covers": "Traces a single model's gap between retrospective and prospective evaluation mainly to infrastructure shift (differences in how and when data are available), not temporal shift. It is an analogue of 'retrospective completeness vs deployment availability'. It has no ranking, no artificial dropout, and no S/M decomposition."
+    }
+   ],
+   "residual_gap": "Not fully covered. The phenomenon is already documented, so it cannot be claimed as a finding. Artificial and natural missingness give different results or rankings in MedFuse App. A.4 vs A.6 (opposite AUROC direction), in CareBench and DrFuse (matched subset vs base cohort vs synthetic sweep), and in Groenwold's simulation. Qian et al. show that artificial-mask rankings depend on the masking protocol. Jeanselme et al. 2025 show model comparisons changing under a real, natural shift in the observation process. The explanatory hypothesis (cohort selection, label shift, prevalence) is written down in DAMS's eICU Discussion but left untested, and DAMS lists it as future work. The null-check tools are standard: case-mix membership models (Debray 2015), IPW to the eligible population, and prevalence reweighting.\n\nAfter a serious search, I found no work that runs the controlled real-data audit C4 describes:\n(i) one pre-registered eligible population and prediction cutoff, where record absence is separated from test-not-performed;\n(ii) the same fixed trained models evaluated (a) on the fully observed subset with artificial modality dropout (MCAR and target-rate-calibrated) and (b) on the naturally masked full eligible cohort;\n(iii) paired tests with bootstrap CIs on the sign of each pairwise risk difference;\n(iv) a sequence of nulls applied BEFORE invoking the acquisition mechanism: reweight the complete subset to the eligible population on pre-acquisition covariates (S), adjust for label prevalence or label shift, and match mask rates. The claim would be that flips which survive all nulls are attributable to informative acquisition.\n\nNovelty here is empirical and methodological rigor, not a new phenomenon or method. N1 must cite MedFuse, CareBench, DrFuse, DAMS, Qian et al. and Jeanselme et al. as prior evidence. Two cautions: the prevalence null must use prevalence-invariant metrics or explicit reweighting, because AUPRC and F1 shift mechanically with class balance. And if the flips vanish under the S and prevalence nulls, the result is a replication of DAMS's conjecture, not a new mechanism.\n\nConfidence caveats: the WebSearch budget was exhausted, so this search used Europe PMC (including full-text queries), PubMed E-utilities, arXiv search, and direct PDF reads. Google Scholar, Semantic Scholar and OpenAlex were rate-limited, so a less-indexed clinical-epidemiology paper or conference abstract could have been missed.",
+   "confidence": "medium"
   }
  ]
 }

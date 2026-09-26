@@ -28,15 +28,15 @@
         "frac_of_collected_not_available": 0.024390243902439025
       },
       "xray_ordered": {
-        "stays_with_order": 91,
+        "stays_with_new_undiscontinued_order": 90,
         "stays_with_file_in_demo": 0
       },
       "ecg_ordered": {
-        "stays_with_order": 34,
+        "stays_with_new_undiscontinued_order": 33,
         "stays_with_file_in_demo": 0
       },
       "echo_ordered": {
-        "stays_with_order": 36,
+        "stays_with_new_undiscontinued_order": 31,
         "stays_with_file_in_demo": 0
       }
     },
@@ -66,15 +66,15 @@
         "frac_of_collected_not_available": 0.0
       },
       "xray_ordered": {
-        "stays_with_order": 106,
+        "stays_with_new_undiscontinued_order": 105,
         "stays_with_file_in_demo": 0
       },
       "ecg_ordered": {
-        "stays_with_order": 37,
+        "stays_with_new_undiscontinued_order": 36,
         "stays_with_file_in_demo": 0
       },
       "echo_ordered": {
-        "stays_with_order": 42,
+        "stays_with_new_undiscontinued_order": 36,
         "stays_with_file_in_demo": 0
       }
     }

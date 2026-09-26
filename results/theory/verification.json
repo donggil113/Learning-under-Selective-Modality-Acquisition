@@ -35,6 +35,30 @@
     "R_reweighted(A)": "143/800",
     "R_reweighted(B)": "207/800"
   },
+  "ce1b_same_complete_case_law": true,
+  "ce1b_same_unlabeled_law": true,
+  "ce1b_opposite_rankings": true,
+  "ce1b_values": {
+    "W1": {
+      "R_T(A)": "7/32",
+      "R_T(B)": "29/128"
+    },
+    "W2": {
+      "R_T(A)": "7/32",
+      "R_T(B)": "27/128"
+    }
+  },
+  "ce3_dropout_prefers_B": true,
+  "ce3_target_prefers_A": true,
+  "ce3_reweighting_recovers": true,
+  "ce3_values": {
+    "R_drop_rate_matched(A)": "207/800",
+    "R_drop_rate_matched(B)": "143/800",
+    "R_T(A)": "143/800",
+    "R_T(B)": "207/800",
+    "R_reweighted(A)": "143/800",
+    "R_reweighted(B)": "207/800"
+  },
   "decomposition_max_abs_error": 4.440892098500626e-16,
   "bounds_violations_random_feasible": 0,
   "bounds_max_gap_vs_LP": 4.440892098500626e-16,

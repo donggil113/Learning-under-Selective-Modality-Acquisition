@@ -30,7 +30,9 @@ import statsmodels.api as sm
 from joblib import Parallel, delayed
 from sklearn.linear_model import LogisticRegression
 
-from .evaluators import Evaluation, agreement, loss01, unit_loss
+from scipy.stats import norm
+
+from .evaluators import Evaluation, agreement, loss01, outcome_model, unit_loss
 from .features_c2012 import BASE_GROUPS, build
 from .models import Prep, Spec, fit_candidates, pattern_id, patterns
 
@@ -40,33 +42,42 @@ BOOT_EVALS = ["drop50", "dams_rate", "freq", "freq_prior_oracle", "sel", "pat", 
 GAMMAS = [1.0, 1.25, 1.5, 2.0, 3.0, 4.0]
 
 
-def make_spec(coh):
+def make_spec(coh, drop_icu=False):
+    """``drop_icu``: remove the ICU-type dummies from x0.  Used for the selection
+    rules' auxiliary models in the cross-ICU design, where ICU type IS the
+    selection variable (V surgical vs U medical) and has no overlap."""
     groups = {g: [coh.cols.index(c) for c in coh.cols if c.split("_")[0] in vs] for g, vs in BASE_GROUPS.items()}
-    return Spec(base_idx=list(coh.base_idx), panel_idx=[list(p) for p in coh.panel_idx], groups=groups)
+    base = [i for i in coh.base_idx if not (drop_icu and coh.cols[i].startswith("icu"))]
+    return Spec(base_idx=base, panel_idx=[list(p) for p in coh.panel_idx], groups=groups)
 
 
 def boot_estimates(ev: Evaluation, loss, idxV, idxU):
-    """Re-evaluate the V/U-based estimators on a bootstrap resample (weights and
-    auxiliary models held fixed; they are functions of units, resampled with them)."""
+    """Re-evaluate the V/U-based estimators on a bootstrap resample.  V units and
+    U units are resampled (pattern frequencies and marginal rates are recomputed
+    from the U resample); the fitted weight, mask and outcome models are held
+    fixed, so these CIs are conditional on the auxiliary fits."""
     LV = unit_loss(ev.PV[:, :, idxV], ev.yV[None, None, idxV], loss)
+    freq = np.bincount(ev.pidU[idxU], minlength=ev.nP) / len(idxU)
+    rate = ev.P[ev.pidU[idxU]].mean(0)
+    q_rate = np.prod(np.where(ev.P, rate[None, :], 1 - rate[None, :]), axis=1)
     out = {}
     R = LV.mean(2)
     out["drop50"] = R.mean(1)
-    out["dams_rate"] = R @ ev.q_rate
-    out["freq"] = R @ ev.freq
+    out["dams_rate"] = R @ q_rate
+    out["freq"] = R @ freq
     piS, pi = ev.yV[idxV].mean(), ev.yT.mean()
     wy = np.where(ev.yV[idxV] == 1, pi / piS, (1 - pi) / (1 - piS))
-    out["freq_prior_oracle"] = ((LV * wy[None, None]).sum(2) / wy.sum()) @ ev.freq
+    out["freq_prior_oracle"] = ((LV * wy[None, None]).sum(2) / wy.sum()) @ freq
     ws, pm = ev.w_sel[idxV], ev.pm_sel[idxV]
     out["sel"] = np.einsum("jmi,im,i->j", LV, pm, ws) / ws.sum()
     wp = ev.w_pat[:, idxV]
-    out["pat"] = ((LV * wp[None]).sum(2) / wp.sum(1)[None]) @ ev.freq
+    out["pat"] = ((LV * wp[None]).sum(2) / wp.sum(1)[None]) @ freq
     l0, l1 = loss01(ev.PU[:, idxU], loss)
     dm = (l0 * (1 - ev.pS_U[idxU]) + l1 * ev.pS_U[idxU]).mean(1)
     v0, v1 = loss01(ev.PV[:, :, idxV], loss)
     ps = ev.pS_V_cf[:, idxV][None]
     res = ((LV - (v0 * (1 - ps) + v1 * ps)) * wp[None]).sum(2) / wp.sum(1)[None]
-    out["dr"] = dm + res @ ev.freq
+    out["dr"] = dm + res @ freq
     return out
 
 
@@ -83,10 +94,19 @@ def mnar_diagnostic(coh, spec, D, Vset, T):
         selT = T[pidT == m]
         if len(selT) < 30:
             continue
-        om = LogisticRegression(C=1.0, max_iter=5000).fit(prep.sub(coh.X[idx_cc], P[m]), coh.y[idx_cc])
-        p = np.clip(om.predict_proba(prep.sub(coh.X[selT], P[m]))[:, 1], 1e-6, 1 - 1e-6)
+        Ztr, Zte = prep.sub(coh.X[idx_cc], P[m]), prep.sub(coh.X[selT], P[m])
+        pf = {f: outcome_model(f).fit(Ztr, coh.y[idx_cc]).predict_proba(Zte)[:, 1] for f in ("lr", "hgb")}
+        p = np.clip((pf["lr"] + pf["hgb"]) / 2, 1e-6, 1 - 1e-6)   # ensemble outcome model
         off = np.log(p / (1 - p))
         y = coh.y[selT]
+        fam = {}
+        for f, pp in pf.items():
+            pp = np.clip(pp, 1e-6, 1 - 1e-6)
+            try:
+                fam[f] = float(sm.GLM(y, np.ones((len(y), 1)), family=sm.families.Binomial(),
+                                      offset=np.log(pp / (1 - pp))).fit().params[0])
+            except Exception:
+                fam[f] = float("nan")
         try:
             fit = sm.GLM(y, np.ones((len(y), 1)), family=sm.families.Binomial(), offset=off).fit()
             b, se = float(fit.params[0]), float(fit.bse[0])
@@ -97,7 +117,8 @@ def mnar_diagnostic(coh, spec, D, Vset, T):
         rows.append({"pattern": "".join(str(int(v)) for v in P[m]), "n": int(len(selT)),
                      "deaths": int(y.sum()), "observed_rate": float(y.mean()), "complete_case_model_rate": float(p.mean()),
                      "log_or": b, "se": se, "or": float(np.exp(b)), "or_lo": float(np.exp(b - 1.96 * se)),
-                     "or_hi": float(np.exp(b + 1.96 * se)), "calibration_slope": slope})
+                     "or_hi": float(np.exp(b + 1.96 * se)), "calibration_slope": slope,
+                     "log_or_lr": fam["lr"], "log_or_hgb": fam["hgb"]})
     return rows
 
 
@@ -108,7 +129,7 @@ def roles(coh, order, design):
     MICU) -- population shift on top of completeness selection."""
     sD, sV, sT = order
     D = np.where(coh.set == sD)[0]
-    if design == "cc":
+    if design in ("cc", "rs"):
         Uidx = np.where(coh.set == sV)[0]
         Vidx = Uidx[coh.M[Uidx].all(1)]
         T = np.where(coh.set == sT)[0]
@@ -137,31 +158,43 @@ def within_truth_ladder(cands, spec, coh, T, seed):
         # outcome model's probability P(Y=1 | x_o(m), M=1).  Its ranking is what a
         # perfect covariate adjustment converges to; its disagreement with the truth
         # is caused only by label-dependent recording (plus outcome-model error).
+        # Reported for the ensemble outcome model and, as a sensitivity check, for
+        # each family alone (an LR reference structurally favours LR candidates).
         l0, l1 = loss01(ev.PT, loss)
         inc = ev.pidT != ev.full_id
-        lab = ((ev.yT - ev.pS_T)[None, :] * (l1 - l0) * inc[None, :]).mean(1)
-        out[loss]["gamma1_limit"] = {"agreement": agreement(tru - lab, tru), "risk": (tru - lab).tolist(),
-                                     "label_part": lab.tolist()}
+        for tag, pS in (("ens", ev.pS_T), ("lr", ev.fam_pS_T["lr"]), ("hgb", ev.fam_pS_T["hgb"])):
+            lab = ((ev.yT - pS)[None, :] * (l1 - l0) * inc[None, :]).mean(1)
+            key = "gamma1_limit" if tag == "ens" else f"gamma1_limit_{tag}"
+            out[loss][key] = {"agreement": agreement(tru - lab, tru), "risk": (tru - lab).tolist(), "label_part": lab.tolist()}
     return out
 
 
 def one_run(order, seed, n_boot, out_dir, design="cc"):
     t0 = time.time()
     coh = build()
+    if design == "rs":
+        # independent replicate: random re-partition of the 12,000 stays into three
+        # sets of 4,000 (the challenge's own sets are used by designs cc and icu)
+        perm = np.random.default_rng(500 + seed).permutation(len(coh.y))
+        coh.set = np.empty(len(coh.y), dtype="<U1")
+        for i, s_ in enumerate("abc"):
+            coh.set[perm[i * 4000:(i + 1) * 4000]] = s_
     spec = make_spec(coh)
+    spec_eval = make_spec(coh, drop_icu=(design == "icu"))
     D, Vidx, Uidx, T, v_in_u = roles(coh, order, design)
     X = coh.X.copy()
     cands = fit_candidates(spec, X[D], coh.M[D], coh.y[D], X[Uidx], coh.M[Uidx], seed=seed)
-    ev = Evaluation(cands, spec, X[Vidx], coh.y[Vidx], X[Uidx], coh.M[Uidx], X[T], coh.M[T], coh.y[T],
+    ev = Evaluation(cands, spec_eval, X[Vidx], coh.y[Vidx], X[Uidx], coh.M[Uidx], X[T], coh.M[T], coh.y[T],
                     yU=coh.y[Uidx], seed=seed, v_in_u=v_in_u)
-    complete_exact = design == "cc"
+    complete_exact = design in ("cc", "rs")
     rng = np.random.default_rng(1000 + seed)
     res = {"design": design, "order": "".join(order), "seed": seed, "names": ev.names, "n": {"D": len(D), "V": len(Vidx),
            "U": len(Uidx), "T": len(T)}, "prevalence": {"D": float(coh.y[D].mean()), "V": float(coh.y[Vidx].mean()),
            "U": float(coh.y[Uidx].mean()), "T": float(coh.y[T].mean())}, "em_prior": ev.em_prior(),
            "freq": ev.freq.tolist(), "q_rate": ev.q_rate.tolist(),
            "w_sel_ess": float(ev.w_sel.sum() ** 2 / (ev.w_sel ** 2).sum()),
-           "w_pat_ess": (ev.w_pat.sum(1) ** 2 / (ev.w_pat ** 2).sum(1)).tolist()}
+           "w_pat_ess": (ev.w_pat.sum(1) ** 2 / (ev.w_pat ** 2).sum(1)).tolist(),
+           "w_sel_raw_mean": ev.w_sel_raw_mean, "w_pat_raw_mean": ev.w_pat_raw_mean.tolist()}
     J = len(cands)
     iu = np.triu_indices(J, 1)
     for loss in ("brier", "logloss"):
@@ -195,7 +228,10 @@ def one_run(order, seed, n_boot, out_dir, design="cc"):
             elo, ehi = np.percentile(be[e], [2.5, 97.5], axis=0)
             esig = np.where(elo > 0, 1, np.where(ehi < 0, -1, 0))
             de = (est[e][:, None] - est[e][None, :])[iu]
+            se_e, se_t = be[e].std(0), bt.std(0)
+            exp_cov = 2 * norm.cdf(1.96 * se_e / np.sqrt(se_e ** 2 + se_t ** 2 + 1e-30)) - 1
             pair[e] = {"sig_sign": esig.tolist(), "delta": de.tolist(),
+                       "expected_cover_if_unbiased": float(np.mean(exp_cov)),
                        "sig_flips": int(np.sum((esig * tsig) < 0)),
                        "sig_agree": int(np.sum((esig * tsig) > 0)),
                        "truth_sig_pairs": int(np.sum(tsig != 0)), "eval_sig_pairs": int(np.sum(esig != 0)),
@@ -224,9 +260,9 @@ def one_run(order, seed, n_boot, out_dir, design="cc"):
         res[loss] = {"risks": R, "agreement": agr, "pairs": pair, "aa": aa,
                      "oracle_label_part": label_part.tolist(),
                      "true_best": ev.names[int(np.argmin(tru))]}
-    res["mnar"] = mnar_diagnostic(coh, spec, D, Vidx, T)
-    res["mnar_dev"] = mnar_diagnostic(coh, spec, Vidx, np.array([], dtype=int), D)  # Gamma calibration from labeled development data
-    res["ladder_T"] = within_truth_ladder(cands, spec, coh, T, seed)
+    res["mnar"] = mnar_diagnostic(coh, spec_eval, D, Vidx, T)
+    res["mnar_dev"] = mnar_diagnostic(coh, spec_eval, Vidx, np.array([], dtype=int), D)  # Gamma calibration from labeled development data
+    res["ladder_T"] = within_truth_ladder(cands, spec_eval, coh, T, seed)
     res["seconds"] = time.time() - t0
     out_dir.mkdir(parents=True, exist_ok=True)
     # arrays for post-hoc analyses (no raw patient features are stored)
@@ -234,21 +270,25 @@ def one_run(order, seed, n_boot, out_dir, design="cc"):
                         PV=ev.PV.astype(np.float32), PU=ev.PU.astype(np.float32), PT=ev.PT.astype(np.float32),
                         yV=ev.yV, yU=ev.yU, yT=ev.yT, pidU=ev.pidU, pidT=ev.pidT, pS_U=ev.pS_U, pS_T=ev.pS_T,
                         pS_V_cf=ev.pS_V_cf, w_sel=ev.w_sel, pm_sel=ev.pm_sel, w_pat=ev.w_pat, freq=ev.freq,
-                        q_rate=ev.q_rate, names=np.array(ev.names), complete_exact=complete_exact)
+                        q_rate=ev.q_rate, names=np.array(ev.names), complete_exact=complete_exact,
+                        pS_U_lr=ev.fam_pS_U["lr"], pS_U_hgb=ev.fam_pS_U["hgb"], pS_T_lr=ev.fam_pS_T["lr"],
+                        pS_T_hgb=ev.fam_pS_T["hgb"], pS_V_cf_lr=ev.fam_pS_V_cf["lr"], pS_V_cf_hgb=ev.fam_pS_V_cf["hgb"])
     (out_dir / f"run_{design}_{''.join(order)}_s{seed}.json").write_text(json.dumps(res))
     return res
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--seeds", type=int, default=2)
+    ap.add_argument("--seeds", type=int, default=1)
     ap.add_argument("--boot", type=int, default=200)
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--orders", default="all")
-    ap.add_argument("--design", default="cc", choices=["cc", "icu"])
+    ap.add_argument("--design", default="cc", choices=["cc", "icu", "rs"])
     ap.add_argument("--out", default=str(ROOT / "results/c2012"))
     a = ap.parse_args()
     orders = list(itertools.permutations("abc")) if a.orders == "all" else [tuple(o) for o in a.orders.split(",")]
+    if a.design == "rs":
+        orders = [tuple("abc")]  # each seed is its own random re-partition
     jobs = [(o, s) for o in orders for s in range(a.seeds)]
     Parallel(n_jobs=a.jobs)(delayed(one_run)(o, s, a.boot, Path(a.out), a.design) for o, s in jobs)
 

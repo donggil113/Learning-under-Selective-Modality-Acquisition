@@ -33,8 +33,24 @@ import numpy as np
 from scipy.stats import kendalltau, spearmanr
 from sklearn.linear_model import LogisticRegression
 
-from .models import Prep, pattern_id, patterns, weights_from, domain_weights
-from .theory import breakdown_gamma, diff_bounds, or_interval
+from sklearn.ensemble import HistGradientBoostingClassifier
+
+from .models import Prep, domain_weights, pattern_id, patterns, weights_from
+
+
+def outcome_model(family, seed=0):
+    if family == "lr":
+        return LogisticRegression(C=1.0, max_iter=5000)
+    return HistGradientBoostingClassifier(learning_rate=0.05, max_iter=200, max_leaf_nodes=15, min_samples_leaf=40,
+                                          l2_regularization=1.0, early_stopping=False, random_state=seed)
+
+
+def raw_weight_mean(clf, Z, nS, nT):
+    """Mean of the UNclipped, UNnormalised density-ratio estimate on the source
+    sample; about 1 under overlap, near 0 when the target has no source support."""
+    p = np.clip(clf.predict_proba(Z)[:, 1], 1e-12, 1 - 1e-12)
+    return float(np.mean(p / (1 - p) * nS / nT))
+from .theory import diff_bounds, or_interval
 
 
 def loss01(p, loss):
@@ -63,6 +79,7 @@ class Evaluation:
         self.nP = len(self.P)
         self.XV, self.yV, self.XU, self.MU, self.XT, self.MT, self.yT, self.yU = XV, yV, XU, MU, XT, MT, yT, yU
         self.rng = np.random.default_rng(seed)
+        self.seed = seed
         J = len(cands)
         self.names = [c.name for c in cands]
         nV = len(XV)
@@ -89,17 +106,21 @@ class Evaluation:
         Z0V, Z0U = prep.x0(XV), prep.x0(XU)
         clf = domain_weights(Z0V, Z0U)
         self.w_sel = weights_from(clf, Z0V, len(Z0V), len(Z0U))
+        self.w_sel_raw_mean = raw_weight_mean(clf, Z0V, len(Z0V), len(Z0U))
         mm = LogisticRegression(C=1.0, max_iter=5000).fit(Z0U, self.pidU)
         pr = np.zeros((len(XV), self.nP))
         pr[:, mm.classes_] = mm.predict_proba(Z0V)
         self.pm_sel = pr
-        # per-pattern covariate weights and outcome models on x_o(m)
+        # per-pattern covariate weights and outcome models on x_o(m).
+        # Outcome model = average of an LR and an HGB fit (not the function class
+        # of any single candidate); per-family predictions are kept for sensitivity.
         self.w_pat = np.ones((self.nP, len(XV)))
-        self.pS_V_cf = np.zeros((self.nP, len(XV)))   # cross-fitted on V
-        self.pS_U = np.zeros(len(XU))                  # fitted on all of V
-        self.pS_T = np.zeros(len(self.XT))
+        self.w_pat_raw_mean = np.ones(self.nP)
+        fam = ("lr", "hgb")
+        self.fam_pS_V_cf = {f: np.zeros((self.nP, len(XV))) for f in fam}
+        self.fam_pS_U = {f: np.zeros(len(XU)) for f in fam}
+        self.fam_pS_T = {f: np.zeros(len(self.XT)) for f in fam}
         folds = self.rng.integers(0, 5, len(XV))
-        self.outcome = {}
         for m in range(self.nP):
             bits = self.P[m]
             ZV = prep.sub(XV, bits)
@@ -108,18 +129,23 @@ class Evaluation:
                 ZU = prep.sub(XU[selU], bits)
                 c = domain_weights(ZV, ZU)
                 self.w_pat[m] = weights_from(c, ZV, len(ZV), len(ZU))
-            om = LogisticRegression(C=1.0, max_iter=5000).fit(ZV, self.yV)
-            self.outcome[m] = om
-            for f in range(5):
-                tr, te = folds != f, folds == f
-                self.pS_V_cf[m, te] = LogisticRegression(C=1.0, max_iter=5000).fit(ZV[tr], self.yV[tr]).predict_proba(ZV[te])[:, 1]
-            if selU.any():
-                self.pS_U[selU] = om.predict_proba(prep.sub(XU[selU], bits))[:, 1]
+                self.w_pat_raw_mean[m] = raw_weight_mean(c, ZV, len(ZV), len(ZU))
             selT = self.pidT == m
-            if selT.any():
-                self.pS_T[selT] = om.predict_proba(prep.sub(self.XT[selT], bits))[:, 1]
-        if self.v_in_u is not None:
-            self.pS_U[self.v_in_u] = self.pS_V_cf[self.full_id]
+            for f in fam:
+                om = outcome_model(f, self.seed).fit(ZV, self.yV)
+                for k in range(5):
+                    tr, te = folds != k, folds == k
+                    self.fam_pS_V_cf[f][m, te] = outcome_model(f, self.seed).fit(ZV[tr], self.yV[tr]).predict_proba(ZV[te])[:, 1]
+                if selU.any():
+                    self.fam_pS_U[f][selU] = om.predict_proba(prep.sub(XU[selU], bits))[:, 1]
+                if selT.any():
+                    self.fam_pS_T[f][selT] = om.predict_proba(prep.sub(self.XT[selT], bits))[:, 1]
+            if self.v_in_u is not None and m == self.full_id:
+                for f in fam:
+                    self.fam_pS_U[f][self.v_in_u] = self.fam_pS_V_cf[f][self.full_id]
+        self.pS_V_cf = np.mean([self.fam_pS_V_cf[f] for f in fam], 0)
+        self.pS_U = np.mean([self.fam_pS_U[f] for f in fam], 0)
+        self.pS_T = np.mean([self.fam_pS_T[f] for f in fam], 0)
 
     # ------------------------------------------------------------------
     def _pattern_risk(self, loss, wunit=None):
@@ -293,11 +319,12 @@ def agreement(est, truth):
     est, truth = np.asarray(est), np.asarray(truth)
     tau = kendalltau(est, truth).statistic
     rho = spearmanr(est, truth).statistic
-    regret = float(truth[np.argmin(est)] - truth.min())
+    tied_best = np.flatnonzero(est == est.min())
+    regret = float(truth[tied_best].mean() - truth.min())          # ties: expected regret of a random pick
     J = len(truth)
     iu = np.triu_indices(J, 1)
     de = (est[:, None] - est[None, :])[iu]
     dt = (truth[:, None] - truth[None, :])[iu]
-    sign_agree = float(np.mean(np.sign(de) == np.sign(dt)))
+    sign_agree = float(np.mean(np.where(de == 0, 0.5, np.sign(de) == np.sign(dt))))  # ties score 1/2
     return {"kendall_tau": float(tau), "spearman": float(rho), "top1_regret": regret,
-            "pair_sign_agreement": sign_agree, "selected": int(np.argmin(est)), "best": int(np.argmin(truth))}
+            "pair_sign_agreement": sign_agree, "selected": int(tied_best[0]), "best": int(np.argmin(truth))}

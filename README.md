@@ -25,7 +25,8 @@ src/n1/
                        Zhou et al. (2023) Alg. 1 and v-MAR baselines, same data and budget
   evaluators.py        selection rules from {labeled complete cases V, unlabeled
                        deployment sample U}; acquisition-aware bounds
-  run_c2012.py         real-data study (6 role orders x seeds; cc and cross-ICU designs)
+  run_c2012.py         real-data study: designs cc (challenge sets, 6 orderings), rs (random
+                       re-partitions) and icu (surgical complete cases -> medical ICUs)
   run_semisynth.py     real features and labels with a KNOWN acquisition mechanism
   audit_mimic_demo.py  acquisition vs record availability on the open MIMIC-IV demo
   audit_uci_heart.py   why UCI Heart is BLOCKED_REALDATA
@@ -42,8 +43,9 @@ pip install numpy scipy pandas scikit-learn statsmodels matplotlib joblib pyarro
 scripts/download_data.sh
 python -m src.n1.theory
 python -m pytest -q tests
-OMP_NUM_THREADS=1 python -m src.n1.run_c2012 --design cc  --seeds 2 --boot 200 --jobs 4
-OMP_NUM_THREADS=1 python -m src.n1.run_c2012 --design icu --seeds 1 --boot 200 --jobs 4
+OMP_NUM_THREADS=1 python -m src.n1.run_c2012 --design cc  --seeds 1 --boot 200 --jobs 4   # challenge sets, 6 orderings
+OMP_NUM_THREADS=1 python -m src.n1.run_c2012 --design rs  --seeds 6 --boot 200 --jobs 4   # 6 random re-partitions
+OMP_NUM_THREADS=1 python -m src.n1.run_c2012 --design icu --seeds 1 --boot 200 --jobs 4   # surgical V -> medical ICUs
 OMP_NUM_THREADS=1 python -m src.n1.run_semisynth --reps 8 --jobs 4
 python -m src.n1.audit_mimic_demo && python -m src.n1.audit_uci_heart
 python -m src.n1.summarize && python -m src.n1.figures

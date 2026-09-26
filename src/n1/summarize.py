@@ -24,7 +24,8 @@ LADDER = ["full", "drop50", "dams_rate", "freq", "freq_prior_plugin", "freq_prio
 
 
 def load_runs(design):
-    return [json.loads(Path(f).read_text()) for f in sorted(glob.glob(str(ROOT / f"results/c2012/run_{design}_*.json")))]
+    runs = [json.loads(Path(f).read_text()) for f in sorted(glob.glob(str(ROOT / f"results/c2012/run_{design}_*.json")))]
+    return [r for r in runs if r.get("design") == design]
 
 
 def ms(x):
@@ -59,39 +60,45 @@ def flips_table(runs, loss):
         rows.append({"evaluator": e,
                      "decided_frac(CI excl. 0)": ms(dec), "decided_correct(vs true sign)": ms(cor),
                      "truth_sig_pairs": ms([p["truth_sig_pairs"] for p in P]),
-                     "eval_sig_pairs": ms([p["eval_sig_pairs"] for p in P]),
-                     "sig_agree": ms([p["sig_agree"] for p in P]),
-                     "sig_flips": ms([p["sig_flips"] for p in P]),
+                     "sig_flips/run": ms([p["sig_flips"] for p in P]),
                      "runs_with_any_sig_flip": f"{sum(p['sig_flips'] > 0 for p in P)}/{len(P)}",
-                     "CI_covers_true_delta": ms([p["ci_covers_truth"] for p in P])})
+                     "CI_covers_true_delta": ms([p["ci_covers_truth"] for p in P]),
+                     "expected_cover_if_unbiased": ms([p.get("expected_cover_if_unbiased", np.nan) for p in P])})
     return pd.DataFrame(rows)
 
-
-def flip_explanation(runs, loss, base="freq"):
-    """For pairs that `base` gets significantly wrong, which adjustment repairs the sign?"""
-    tot = 0
-    fixed = {k: 0 for k in ["freq_prior_oracle", "sel", "pat", "dr"]}
-    for r in runs:
-        P = r[loss]["pairs"]
-        ts = np.array(P["truth_sig_sign"])
-        bs = np.array(P[base]["sig_sign"])
-        flip = (bs * ts) < 0
-        tot += int(flip.sum())
-        for k in fixed:
-            d = np.sign(np.array(P[k]["delta"]))
-            fixed[k] += int(np.sum(flip & (d == ts)))
-    return {"base": base, "sig_flips_total": tot, **{f"repaired_by_{k}": v for k, v in fixed.items()}}
-
+def flip_explanation(runs, loss, base="drop50"):
+    """Symmetric accounting on truth-significant pairs, by point sign: pairs the
+    base evaluator gets wrong that the adjustment gets right (repaired) AND pairs
+    the base gets right that the adjustment gets wrong (broken); plus each
+    evaluator's own bootstrap-significant flips."""
+    out = []
+    for k in ["freq", "freq_prior_oracle", "sel", "pat", "dr"]:
+        rep = brk = 0
+        base_flips = adj_flips = 0
+        for r in runs:
+            P = r[loss]["pairs"]
+            ts = np.array(P["truth_sig_sign"])
+            m = ts != 0
+            b = np.sign(np.array(P[base]["delta"]))
+            a = np.sign(np.array(P[k]["delta"]))
+            rep += int(np.sum(m & (b != ts) & (a == ts)))
+            brk += int(np.sum(m & (b == ts) & (a != ts)))
+            base_flips += P[base]["sig_flips"]
+            adj_flips += P[k]["sig_flips"]
+        out.append({"base": base, "adjustment": k, "repaired(point sign)": rep, "broken(point sign)": brk,
+                    "net": rep - brk, "base_sig_flips_total": base_flips, "adjustment_sig_flips_total": adj_flips})
+    return out
 
 def ladder_table(runs, loss):
     rows = []
-    for e in LADDER:
-        vals = [r["ladder_T"][loss][e]["agreement"] for r in runs]
+    for e in LADDER + ["gamma1_limit_lr", "gamma1_limit_hgb"]:
+        vals = [r["ladder_T"][loss][e]["agreement"] for r in runs if e in r["ladder_T"][loss]]
+        if not vals:
+            continue
         rows.append({"step": e, "kendall_tau": ms([v["kendall_tau"] for v in vals]),
                      "pair_sign_agreement": ms([v["pair_sign_agreement"] for v in vals]),
                      "top1_regret(x1e3)": ms([1e3 * v["top1_regret"] for v in vals])})
     return pd.DataFrame(rows)
-
 
 def strategy_ranks(runs, loss):
     names = runs[0]["names"]
@@ -121,7 +128,7 @@ def aa_table(runs, loss):
 
 def gamma_transfer(runs):
     """Per-pattern log-OR estimated on the labeled DEVELOPMENT set (D) vs on the
-    deployment truth set (T): can Gamma be calibrated without target labels?"""
+    deployment truth set (T), one run per distinct role assignment."""
     rows = []
     for r in runs:
         d = {x["pattern"]: x for x in r["mnar_dev"]}
@@ -130,14 +137,12 @@ def gamma_transfer(runs):
             if k == "1111":
                 continue
             rows.append({"run": r["order"] + str(r["seed"]), "pattern": k, "logor_dev": d[k]["log_or"],
-                         "logor_T": t[k]["log_or"], "n_T": t[k]["n"]})
+                         "logor_T": t[k]["log_or"], "n_T": t[k]["n"],
+                         "same_direction": np.sign(d[k]["log_or"]) == np.sign(t[k]["log_or"])})
     df = pd.DataFrame(rows)
-    out = {"pearson_r": float(df[["logor_dev", "logor_T"]].corr().iloc[0, 1]),
-           "mean_abs_diff": float((df.logor_dev - df.logor_T).abs().mean()),
-           "frac_T_within_dev_gamma": float(np.mean(np.abs(df.logor_T) <= np.abs(df.logor_dev).groupby(df.run).transform("max"))),
-           "n_pairs": int(len(df))}
-    return out
-
+    return {"pearson_r": float(df[["logor_dev", "logor_T"]].corr().iloc[0, 1]),
+            "mean_abs_diff": float((df.logor_dev - df.logor_T).abs().mean()),
+            "frac_same_direction": float(df.same_direction.mean()), "n_pattern_runs": int(len(df))}
 
 def saved_eval(npz):
     z = np.load(npz, allow_pickle=True)
@@ -175,40 +180,44 @@ def aa_per_panel(design, loss, lams=(1.0, 1.1, 1.2, 1.3, 1.5, 2.0)):
     return df.groupby(["direction", "lambda"])[["decided_frac", "decided_correct", "covers"]].agg(["mean", "std"]).round(3)
 
 
-def label_part_analysis(design, loss, n_boot=300, seed=0):
-    """Pairwise label-dependent part  D_ab = mean_T 1[group] (y - p_S)(g_a - g_b)
-    with g = l1 - l0.  If Y is independent of M given X_o(m) and p_S is calibrated, E[D_ab] = 0.
-    group = incomplete units (the MNAR term) and, as a negative control for the
-    outcome model, complete units (exchangeable with V in the complete-case design)."""
+def label_part_analysis(design, loss, n_boot=300, seed=0, family=None):
+    """Pairwise contribution of the non-identified term to the true risk
+    difference, D_ab = (1/n_T) sum_{i in group} (y_i - p_S,i)(g_a,i - g_b,i),
+    g = l1 - l0.  Reported: share of pairs whose D has a CI excluding 0, and the
+    share of truth-significant pairs whose SIGN would change if D were removed
+    (sign(Delta - D) != sign(Delta)).  Groups: incomplete units (the MNAR-given-
+    recorded-features term) and complete units as a negative control, size-matched
+    by rescaling the control to the incomplete group's size.  ``family``: outcome
+    model used for p_S ('lr', 'hgb' or None = ensemble)."""
     rng = np.random.default_rng(seed)
     rows = []
     for f in sorted(glob.glob(str(ROOT / f"results/c2012/arrays_{design}_*.npz"))):
         ev, exact = saved_eval(f)
+        pS_T = ev.pS_T if family is None else getattr(ev, f"pS_T_{family}")
         l0, l1 = loss01(ev.PT, loss)
-        g = (l1 - l0)                                     # J x nT
-        res = (ev.yT - ev.pS_T)                           # nT
+        g = (l1 - l0)
+        res = (ev.yT - pS_T)
         tru_units = np.where(ev.yT[None, :] == 1, l1, l0)
         J, nT = g.shape
         iu = np.triu_indices(J, 1)
         inc = ev.pidT != ev.full_id
         B = rng.integers(0, nT, (n_boot, nT))
-        for grp, mask in (("incomplete", inc), ("complete(control)", ~inc)):
-            c = g * (res * mask)[None, :]                 # J x nT
+        tr = tru_units.mean(1)
+        dt = (tr[:, None] - tr[None, :])[iu]
+        trb = np.stack([(lambda m: (m[:, None] - m[None, :])[iu])(tru_units[:, b].mean(1)) for b in B])
+        tlo, thi = np.percentile(trb, [2.5, 97.5], axis=0)
+        tsig = (tlo > 0) | (thi < 0)
+        for grp, mask in (("incomplete", inc), ("complete (control, size-matched)", ~inc)):
+            scale = inc.sum() / max(mask.sum(), 1) if grp.startswith("complete") else 1.0
+            c = g * (res * mask)[None, :] * scale
             D = (c.mean(1)[:, None] - c.mean(1)[None, :])[iu]
             Db = np.stack([(lambda m: (m[:, None] - m[None, :])[iu])(c[:, b].mean(1)) for b in B])
             lo, hi = np.percentile(Db, [2.5, 97.5], axis=0)
-            tr = tru_units.mean(1)
-            dt = (tr[:, None] - tr[None, :])[iu]
-            trb = np.stack([(lambda m: (m[:, None] - m[None, :])[iu])(tru_units[:, b].mean(1)) for b in B])
-            tlo, thi = np.percentile(trb, [2.5, 97.5], axis=0)
-            tsig = (tlo > 0) | (thi < 0)
             rows.append({"run": Path(f).stem, "group": grp,
-                         "pairs_label_part_CI_excl_0": float(np.mean((lo > 0) | (hi < 0))),
-                         "truth_sig_pairs_where_|label_part|>|true_delta|": float(np.mean(np.abs(D[tsig]) > np.abs(dt[tsig]))) if tsig.any() else np.nan,
-                         "median_|label_part|/|true_delta|": float(np.median(np.abs(D) / np.maximum(np.abs(dt), 1e-12)))})
+                         "pairs_with_CI_excl_0": float(np.mean((lo > 0) | (hi < 0))),
+                         "truth_sig_pairs_sign_would_change": float(np.mean(np.sign(dt[tsig] - D[tsig]) != np.sign(dt[tsig]))) if tsig.any() else np.nan})
     df = pd.DataFrame(rows)
     return df.groupby("group")[[c for c in df.columns if c not in ("run", "group")]].agg(["mean", "std"]).round(3)
-
 
 def aa_bootstrap(design, loss, settings=(("scalar", 1.0), ("scalar", 1.5), ("scalar", 2.0), ("scalar", 3.0),
                                          ("panel", 1.2), ("panel", 1.3), ("panel", 1.5)),
@@ -241,84 +250,226 @@ def aa_bootstrap(design, loss, settings=(("scalar", 1.0), ("scalar", 1.5), ("sca
     return df.groupby(["direction", "gamma"])[["decided_frac", "decided_correct", "ci_covers_true_delta"]].agg(["mean", "std"]).round(3)
 
 
-def dev_lambda(mnar_rows):
-    """Per-panel sensitivity from DEVELOPMENT labels only: inverse-variance
-    weighted slope (through the origin) of per-pattern log-OR on the number of
-    unrecorded panels.  Returns (lambda, direction)."""
-    x, y, w = [], [], []
+def dev_lambda(mnar_rows, conservative=False, min_n=100):
+    """Per-panel sensitivity from DEVELOPMENT labels only.
+    default: inverse-variance weighted slope (through the origin) of per-pattern
+      log-OR on the number of unrecorded panels -- a pattern-AVERAGE, hence only a
+      lower bound on the per-unit Gamma the bounds assume.
+    conservative: max over patterns with n >= min_n of the per-panel upper 95%
+      limit, exp((|log OR| + 1.96 se) / k).
+    Returns (lambda, direction of the average slope)."""
+    x, y, w, ub = [], [], [], []
     for r in mnar_rows:
         k = 4 - r["pattern"].count("1")
         if k == 0 or not np.isfinite(r.get("se", np.nan)) or r["se"] <= 0:
             continue
         x.append(k); y.append(r["log_or"]); w.append(1 / r["se"] ** 2)
+        if r["n"] >= min_n:
+            ub.append((abs(r["log_or"]) + 1.96 * r["se"]) / k)
     x, y, w = map(np.asarray, (x, y, w))
     b = float(np.sum(w * x * y) / np.sum(w * x * x))
-    return float(np.exp(abs(b))), ("down" if b < 0 else "up")
-
+    lam = float(np.exp(max(ub))) if conservative else float(np.exp(abs(b)))
+    return lam, ("down" if b < 0 else "up")
 
 def aa_dev_calibrated(design, loss, n_boot=200, seed=1):
     """Acquisition-aware selection with lambda AND direction chosen per run from
-    the labeled development set D (no deployment labels)."""
+    the labeled development set D only (no deployment labels)."""
     from .evaluators import aa_bootstrap_ci, unit_loss
     rng = np.random.default_rng(seed)
     rows = []
     for f in sorted(glob.glob(str(ROOT / f"results/c2012/arrays_{design}_*.npz"))):
         run = json.loads(Path(f.replace("arrays_", "run_").replace(".npz", ".json")).read_text())
-        lam, d = dev_lambda(run["mnar_dev"])
+        lam_avg, d = dev_lambda(run["mnar_dev"])
+        lam_cons, _ = dev_lambda(run["mnar_dev"], conservative=True)
         lam_T, d_T = dev_lambda(run["mnar"])
         ev, exact = saved_eval(f)
         tru = unit_loss(ev.PT.astype(float), ev.yT[None, :], loss).mean(1)
         iu = np.triu_indices(len(tru), 1)
         dt = (tru[:, None] - tru[None, :])[iu]
-        for direction in (d, None):
-            cl, cu, _ = aa_bootstrap_ci(ev, loss, ev.gamma_per_panel(lam), direction, exact, n_boot, rng)
-            dec = (cl > 0) | (cu < 0)
-            rows.append({"run": Path(f).stem, "lambda_dev": lam, "direction_dev": d, "lambda_T(oracle)": lam_T,
-                         "direction_T(oracle)": d_T, "rule": f"{direction or 'two'}-sided at lambda_dev",
-                         "decided_frac": dec.mean(),
-                         "decided_correct": np.mean(np.where(cl > 0, 1, -1)[dec] == np.sign(dt[dec])) if dec.any() else np.nan,
-                         "ci_covers_true_delta": np.mean((cl <= dt) & (dt <= cu))})
-    df = pd.DataFrame(rows)
-    df["rule"] = df["rule"].str.replace("down-sided", "one-sided(down)").str.replace("up-sided", "one-sided(up)")
-    return df
+        for tag, lam in (("average", lam_avg), ("conservative", lam_cons)):
+            for direction in (d, None):
+                cl, cu, _ = aa_bootstrap_ci(ev, loss, ev.gamma_per_panel(lam), direction, exact, n_boot, rng)
+                dec = (cl > 0) | (cu < 0)
+                rows.append({"run": Path(f).stem, "lambda_kind": tag, "lambda": lam, "direction_dev": d,
+                             "lambda_T_avg(oracle)": lam_T, "direction_T(oracle)": d_T,
+                             "rule": f"{tag} lambda, {'one-sided (' + direction + ')' if direction else 'two-sided'}",
+                             "decided_frac": dec.mean(),
+                             "decided_correct": np.mean(np.where(cl > 0, 1, -1)[dec] == np.sign(dt[dec])) if dec.any() else np.nan,
+                             "ci_covers_true_delta": np.mean((cl <= dt) & (dt <= cu))})
+    return pd.DataFrame(rows)
+
+def _run_for(npz):
+    return json.loads(Path(npz.replace("arrays_", "run_").replace(".npz", ".json")).read_text())
+
+
+def _roles_for(run):
+    """Re-create the index sets of a run (incl. the random re-partition of design rs)."""
+    from .run_c2012 import roles
+    coh = build()
+    if run["design"] == "rs":
+        perm = np.random.default_rng(500 + run["seed"]).permutation(len(coh.y))
+        coh.set = np.empty(len(coh.y), dtype="<U1")
+        for i, s_ in enumerate("abc"):
+            coh.set[perm[i * 4000:(i + 1) * 4000]] = s_
+    return coh, roles(coh, tuple(run["order"]), run["design"])
+
+
+def dm_dev(design, loss):
+    """Same-population labeled baseline that the {V,U} regime deliberately ignores:
+    pattern-wise outcome models P(Y | x_o(m), M=m) fitted on the labeled,
+    naturally-missing development set D (LR+HGB ensemble; patterns with < 30 D
+    units or one class fall back to D units whose pattern contains m), plugged into
+    U.  Caveat: candidates were trained on the same D, so this is optimistic for
+    candidates that fit D's noise the same way."""
+    from .evaluators import agreement, outcome_model, unit_loss
+    rows = []
+    for f in sorted(glob.glob(str(ROOT / f"results/c2012/arrays_{design}_*.npz"))):
+        run = _run_for(f)
+        coh, (D, V, U, T, _) = _roles_for(run)
+        spec = make_spec(coh, drop_icu=(design == "icu"))
+        ev, _ = saved_eval(f)
+        P = patterns(spec.K)
+        MD, MU = coh.M[D], coh.M[U]
+        pidD, pidU = pattern_id(MD), pattern_id(MU)
+        Xn = coh.X[D].copy()
+        for k, idx in enumerate(spec.panel_idx):
+            Xn[np.ix_(~MD[:, k], idx)] = np.nan
+        prep = Prep(spec).fit(Xn)
+        p = np.zeros(len(U))
+        for m in np.unique(pidU):
+            tr = pidD == m
+            if tr.sum() < 30 or len(np.unique(coh.y[D][tr])) < 2:
+                tr = (MD | ~P[m][None, :]).all(1)
+            Ztr, Zte = prep.sub(coh.X[D][tr], P[m]), prep.sub(coh.X[U][pidU == m], P[m])
+            p[pidU == m] = np.mean([outcome_model(fam).fit(Ztr, coh.y[D][tr]).predict_proba(Zte)[:, 1] for fam in ("lr", "hgb")], 0)
+        l0, l1 = loss01(ev.PU.astype(float), loss)
+        est = (l0 * (1 - p) + l1 * p).mean(1)
+        tru = unit_loss(ev.PT.astype(float), ev.yT[None, :], loss).mean(1)
+        rows.append(agreement(est, tru))
+    return {k: ms([r[k] for r in rows]) for k in ("kendall_tau", "top1_regret", "pair_sign_agreement")}
+
+
+def flip_pairs_involvement(runs, loss, ev_name="drop50"):
+    """Which candidates appear in the bootstrap-significant flips of an evaluator."""
+    from collections import Counter
+    cnt, tot, maskaware = Counter(), 0, 0
+    for r in runs:
+        names = r["names"]
+        iu = np.triu_indices(len(names), 1)
+        ts = np.array(r[loss]["pairs"]["truth_sig_sign"])
+        es = np.array(r[loss]["pairs"][ev_name]["sig_sign"])
+        for k in np.flatnonzero(es * ts < 0):
+            a, b = names[iu[0][k]], names[iu[1][k]]
+            cnt[a] += 1; cnt[b] += 1; tot += 1
+            maskaware += any(x.endswith(("nat_mask", "nat_drop_mask")) for x in (a, b))
+    return {"flips": tot, "pairs_with_natural_mask_aware_model": maskaware,
+            "most_involved": cnt.most_common(6)}
+
+
+def nat_cc_preserved(runs, loss):
+    """Share of (natural-trained, complete-case-trained) candidate pairs in which an
+    evaluator ranks the natural-trained model better (truth: see 'truth')."""
+    out = {}
+    for e in ["truth"] + EVAL_ORDER[:11]:
+        fr = []
+        for r in runs:
+            v = np.array(r[loss]["risks"][e])
+            nat = [i for i, n in enumerate(r["names"]) if ":nat_" in n]
+            cc = [i for i, n in enumerate(r["names"]) if ":cc_" in n]
+            fr.append(np.mean([v[i] < v[j] for i in nat for j in cc]))
+        out[e] = round(float(np.mean(fr)), 3)
+    return out
+
+
+def aa_on_flips(design, loss, n_boot=200, seed=2):
+    """For each bootstrap-significant drop50 flip: what does the acquisition-aware
+    rule (lambda and direction from development labels only) decide?"""
+    from .evaluators import aa_bootstrap_ci
+    rng = np.random.default_rng(seed)
+    tally = {"flips": 0, "aa_correct": 0, "aa_undecided": 0, "aa_wrong": 0, "dr_gamma1_correct": 0}
+    for f in sorted(glob.glob(str(ROOT / f"results/c2012/arrays_{design}_*.npz"))):
+        run = _run_for(f)
+        ts = np.array(run[loss]["pairs"]["truth_sig_sign"])
+        es = np.array(run[loss]["pairs"]["drop50"]["sig_sign"])
+        flips = np.flatnonzero(es * ts < 0)
+        if not len(flips):
+            continue
+        lam, d = dev_lambda(run["mnar_dev"])
+        ev, exact = saved_eval(f)
+        cl, cu, _ = aa_bootstrap_ci(ev, loss, ev.gamma_per_panel(lam), d, exact, n_boot, rng)
+        c1, u1, _ = aa_bootstrap_ci(ev, loss, np.ones(len(ev.pidU)), None, exact, n_boot, rng)
+        for k in flips:
+            tally["flips"] += 1
+            dec = 1 if cl[k] > 0 else (-1 if cu[k] < 0 else 0)
+            tally["aa_correct" if dec == ts[k] else ("aa_undecided" if dec == 0 else "aa_wrong")] += 1
+            tally["dr_gamma1_correct"] += int((1 if c1[k] > 0 else (-1 if u1[k] < 0 else 0)) == ts[k])
+    return tally
 
 
 def mnar_pooled():
-    """Per pattern: odds ratio of death vs the complete-case model given x_o(m),
-    cross-fitted by challenge set (outcome models from the complete cases of the
-    other two sets), pooled over all 12,000 stays.  Uses labels: evaluation only."""
+    """Per pattern: odds of death in pattern m vs the complete-case law given
+    x_o(m).  Cross-fitted by challenge set (models from the complete cases of the
+    other two sets), pooled over all 12,000 stays.  Three estimators:
+      offset-GLM with an LR, an HGB and an ensemble (mean) outcome model, each
+      also reported relative to its own 1111 control; and
+      IW: observed pattern-m odds vs complete-case odds reweighted to pattern m's
+      x_o(m) distribution by a logistic domain classifier (no outcome model).
+    Uses labels: evaluation only.  A departure from 1 means Y is not independent
+    of M given X_o(m) (dependence on Y OR on unrecorded values) -- or misfit of
+    the model used, which is why several are shown."""
+    from .evaluators import outcome_model
+    from .models import domain_weights, weights_from
     coh = build()
     spec = make_spec(coh)
     P = patterns(spec.K)
     pid = pattern_id(coh.M)
-    off = np.full(len(pid), np.nan)
-    for s in "abc":
-        tr = (coh.set != s) & coh.M.all(1)
-        te = coh.set == s
+    fams = ("lr", "hgb")
+    off = {f: np.full(len(pid), np.nan) for f in fams}
+    iw_exp = np.full(len(pid), np.nan)
+    for s_ in "abc":
+        tr = (coh.set != s_) & coh.M.all(1)
+        te = coh.set == s_
         prep = Prep(spec).fit(coh.X[tr])
         for m in range(len(P)):
             sel = te & (pid == m)
             if not sel.any():
                 continue
-            om = LogisticRegression(C=1.0, max_iter=5000).fit(prep.sub(coh.X[tr], P[m]), coh.y[tr])
-            p = np.clip(om.predict_proba(prep.sub(coh.X[sel], P[m]))[:, 1], 1e-6, 1 - 1e-6)
-            off[sel] = np.log(p / (1 - p))
+            Ztr, Zte = prep.sub(coh.X[tr], P[m]), prep.sub(coh.X[sel], P[m])
+            for f in fams:
+                p = np.clip(outcome_model(f).fit(Ztr, coh.y[tr]).predict_proba(Zte)[:, 1], 1e-6, 1 - 1e-6)
+                off[f][sel] = np.log(p / (1 - p))
+            if m != len(P) - 1:
+                clf = domain_weights(Ztr, Zte)
+                w = weights_from(clf, Ztr, len(Ztr), len(Zte), clip_q=0.995)
+                iw_exp[sel] = np.sum(w * coh.y[tr]) / np.sum(w)     # complete-case mortality reweighted to pattern m
+    ens = np.log(1 / (1 + np.exp(-off["lr"])) / 2 + 1 / (1 + np.exp(-off["hgb"])) / 2)
+    ens = np.log(np.exp(ens) / (1 - np.exp(ens)))
+    offs = {"lr": off["lr"], "hgb": off["hgb"], "ens": ens}
+
+    def glm(y, o):
+        fit = sm.GLM(y, np.ones((len(y), 1)), family=sm.families.Binomial(), offset=o).fit()
+        return float(fit.params[0]), float(fit.bse[0])
+
+    ctrl = {f: glm(coh.y[pid == len(P) - 1], offs[f][pid == len(P) - 1])[0] for f in offs}
     rows = []
     for m in range(len(P)):
         sel = pid == m
         y = coh.y[sel]
-        fit = sm.GLM(y, np.ones((sel.sum(), 1)), family=sm.families.Binomial(), offset=off[sel]).fit()
-        b, se = float(fit.params[0]), float(fit.bse[0])
-        rows.append({"pattern(ABG,ALINE,LACT,LIVER)": "".join(str(int(v)) for v in P[m]),
-                     "n_missing_panels": int(spec.K - P[m].sum()), "n": int(sel.sum()), "deaths": int(y.sum()),
-                     "observed_mortality": round(float(y.mean()), 3),
-                     "complete_case_model_mortality": round(float(np.mean(1 / (1 + np.exp(-off[sel])))), 3),
-                     "odds_ratio": round(float(np.exp(b)), 3), "or_95ci": f"[{np.exp(b - 1.96 * se):.2f}, {np.exp(b + 1.96 * se):.2f}]",
-                     "implied_Gamma": round(float(np.exp(abs(b))), 2)})
-    df = pd.DataFrame(rows).sort_values(["n_missing_panels", "pattern(ABG,ALINE,LACT,LIVER)"])
-    # per-panel log-OR slope: log OR ~ lambda * n_missing (inverse-variance weighted, incomplete patterns)
-    return df
-
+        row = {"pattern(ABG,ALINE,LACT,LIVER)": "".join(str(int(v)) for v in P[m]),
+               "n_missing_panels": int(spec.K - P[m].sum()), "n": int(sel.sum()), "deaths": int(y.sum()),
+               "observed_mortality": round(float(y.mean()), 3)}
+        for f in ("ens", "lr", "hgb"):
+            b, se = glm(y, offs[f][sel])
+            row[f"OR_{f} [95% CI]"] = f"{np.exp(b):.2f} [{np.exp(b - 1.96 * se):.2f}, {np.exp(b + 1.96 * se):.2f}]"
+            row[f"OR_{f}/control"] = round(float(np.exp(b - ctrl[f])), 2)
+            if f == "ens":
+                row["log_or_ens"], row["se_ens"] = b, se
+        if m != len(P) - 1:
+            pe = float(np.mean(iw_exp[sel]))
+            po = float(y.mean())
+            row["OR_IW"] = round((po / (1 - po)) / (pe / (1 - pe)), 2)
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values(["n_missing_panels", "pattern(ABG,ALINE,LACT,LIVER)"])
 
 def semisynth():
     files = sorted(glob.glob(str(ROOT / "results/semisynth/semi_*.json")))
@@ -356,68 +507,87 @@ def semisynth():
     return pd.DataFrame(rows), pd.DataFrame(aa)
 
 
+def flat(df):
+    d = df.copy()
+    if isinstance(d.columns, pd.MultiIndex):
+        d.columns = [f"{a}_{b}" for a, b in d.columns]
+    return d.reset_index().to_dict("records")
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    md = ["# N1 results summary (generated by `python -m src.n1.summarize`)\n"]
+    md = ["# N1 results summary (generated by `python -m src.n1.summarize`)\n",
+          "Designs: `cc` = the challenge's own sets a/b/c in all 6 role orderings (only 3 distinct V/U samples and 3 "
+          "distinct T samples; orderings sharing V/U are NOT independent); `rs` = 6 random re-partitions of the 12,000 "
+          "stays (distinct V/U/T draws); `icu` = surgical complete cases -> medical ICUs, 6 orderings.\n"]
     js = {}
-    for design in ("cc", "icu"):
+    for design in ("cc", "rs", "icu"):
         runs = load_runs(design)
         if not runs:
             continue
         md.append(f"\n## Challenge 2012, design `{design}` ({len(runs)} runs)\n")
         md.append("Roles/sizes (first run): " + json.dumps(runs[0]["n"]) + "; prevalence: " +
                   json.dumps({k: round(v, 3) for k, v in runs[0]["prevalence"].items()}) +
-                  f"; EM prior estimates: {ms([r['em_prior'] for r in runs])}\n")
-        js[design] = {}
+                  f"; EM prior estimates: {ms([r['em_prior'] for r in runs])}; raw weight mean on V (sel): "
+                  f"{ms([r.get('w_sel_raw_mean', np.nan) for r in runs])}\n")
+        js[design] = {"n_runs": len(runs)}
         for loss in ("brier", "logloss"):
             t = agreement_table(runs, loss)
             md.append(f"\n### {loss}: agreement with the natural-missingness truth\n\n" + t.drop(columns="_tau").to_markdown(index=False) + "\n")
             f = flips_table(runs, loss)
-            md.append(f"\n### {loss}: bootstrap-significant pairwise disagreements (of {len(runs[0]['names']) * (len(runs[0]['names']) - 1) // 2} pairs)\n\n" + f.to_markdown(index=False) + "\n")
-            fx = {b: flip_explanation(runs, loss, b) for b in ("drop50", "freq")}
-            md.append(f"\n### {loss}: which adjustment repairs the significant flips\n\n" + pd.DataFrame(fx.values()).to_markdown(index=False) + "\n")
+            npairs = len(runs[0]["names"]) * (len(runs[0]["names"]) - 1) // 2
+            md.append(f"\n### {loss}: bootstrap-significant pairwise disagreements (of {npairs} pairs)\n\n" + f.to_markdown(index=False) + "\n")
+            fx = flip_explanation(runs, loss, "drop50")
+            md.append(f"\n### {loss}: repaired vs broken (truth-significant pairs, point sign) relative to dropout p=0.5\n\n" + pd.DataFrame(fx).to_markdown(index=False) + "\n")
             L = ladder_table(runs, loss)
             md.append(f"\n### {loss}: within-truth-set ladder (V = complete cases of T, U = T)\n\n" + L.to_markdown(index=False) + "\n")
             S = strategy_ranks(runs, loss)
             md.append(f"\n### {loss}: mean rank of each candidate (1 = best)\n\n" + S.round(4).to_markdown() + "\n")
             A = aa_table(runs, loss)
-            md.append(f"\n### {loss}: acquisition-aware bounds, scalar Gamma\n\n" + A.to_markdown(index=False) + "\n")
+            md.append(f"\n### {loss}: acquisition-aware bounds without sampling uncertainty, scalar Gamma\n\n" + A.to_markdown(index=False) + "\n")
+            out = {"agreement": t.to_dict("records"), "flips": f.to_dict("records"), "flip_explanation": fx,
+                   "ladder": L.to_dict("records"), "aa": A.to_dict("records"),
+                   "strategy_ranks": S.reset_index().rename(columns={"index": "model"}).to_dict("records")}
             try:
                 AB = aa_bootstrap(design, loss)
-                md.append(f"\n### {loss}: acquisition-aware selection with bootstrap 95% CI on the identified interval\n\n" + AB.to_markdown() + "\n")
-                ABf = AB.copy()
-                ABf.columns = [f"{a}_{b}" for a, b in ABf.columns]
-                js[design].setdefault("aa_bootstrap", {})[loss] = ABf.reset_index().to_dict("records")
+                md.append(f"\n### {loss}: acquisition-aware selection with bootstrap 95% CI, lambda/Gamma grid\n\n" + AB.to_markdown() + "\n")
+                out["aa_bootstrap"] = flat(AB)
             except Exception as ex:
                 md.append(f"\n(aa bootstrap unavailable: {ex})\n")
             try:
                 DC = aa_dev_calibrated(design, loss)
-                agg = DC.groupby("rule")[["lambda_dev", "decided_frac", "decided_correct", "ci_covers_true_delta"]].agg(["mean", "std"]).round(3)
-                md.append(f"\n### {loss}: acquisition-aware selection with lambda and direction calibrated on DEVELOPMENT labels only\n\n"
-                          + agg.to_markdown() + "\n\nper run: " + DC[["run", "lambda_dev", "direction_dev", "lambda_T(oracle)", "direction_T(oracle)"]].drop_duplicates().round(3).to_markdown(index=False) + "\n")
-                aggf = agg.copy()
-                aggf.columns = [f"{a}_{b}" for a, b in aggf.columns]
-                js[design].setdefault("aa_dev_calibrated", {})[loss] = aggf.reset_index().to_dict("records")
+                agg = DC.groupby("rule")[["lambda", "decided_frac", "decided_correct", "ci_covers_true_delta"]].agg(["mean", "std"]).round(3)
+                per = DC[["run", "lambda_kind", "lambda", "direction_dev", "lambda_T_avg(oracle)", "direction_T(oracle)"]].drop_duplicates().round(3)
+                md.append(f"\n### {loss}: acquisition-aware selection, lambda and direction from DEVELOPMENT labels only\n\n"
+                          + agg.to_markdown() + "\n\nper run:\n\n" + per.to_markdown(index=False) + "\n")
+                out["aa_dev_calibrated"] = flat(agg)
+                out["aa_dev_lambdas"] = per.to_dict("records")
             except Exception as ex:
                 md.append(f"\n(dev-calibrated aa unavailable: {ex})\n")
+            for fam in (None, "lr", "hgb"):
+                try:
+                    LP = label_part_analysis(design, loss, family=fam)
+                    md.append(f"\n### {loss}: non-identified part of pairwise differences, outcome model = {fam or 'ensemble'}\n\n" + LP.to_markdown() + "\n")
+                    out[f"label_part_{fam or 'ens'}"] = flat(LP)
+                except Exception as ex:
+                    md.append(f"\n(label-part analysis unavailable: {ex})\n")
             try:
-                LP = label_part_analysis(design, loss)
-                md.append(f"\n### {loss}: label-dependent part of pairwise risk differences (truth set)\n\n" + LP.to_markdown() + "\n")
+                extra = {"dm_dev (D-labeled outcome model, not {V,U})": dm_dev(design, loss),
+                         "drop50 flips: involvement": flip_pairs_involvement(runs, loss),
+                         "nat-vs-cc pairs ranked nat-better": nat_cc_preserved(runs, loss),
+                         "drop50 flips: dev-calibrated AA decisions": aa_on_flips(design, loss)}
+                md.append(f"\n### {loss}: extra analyses\n\n```\n" + json.dumps(extra, indent=1, default=str) + "\n```\n")
+                out["extra"] = extra
             except Exception as ex:
-                md.append(f"\n(label-part analysis unavailable: {ex})\n")
-            try:
-                PP = aa_per_panel(design, loss)
-                md.append(f"\n### {loss}: acquisition-aware bounds, per-panel Gamma = lambda^(#missing panels)\n\n" + PP.to_markdown() + "\n")
-            except Exception as ex:  # arrays missing
-                md.append(f"\n(per-panel bounds unavailable: {ex})\n")
+                md.append(f"\n(extra analyses unavailable: {ex})\n")
             if loss == "brier":
                 gt = gamma_transfer(runs)
-                md.append("\n### Gamma calibration: per-pattern log-OR on labeled development data vs on deployment truth\n\n" + json.dumps(gt) + "\n")
+                md.append("\n### Per-pattern log-OR: development data vs deployment truth\n\n" + json.dumps(gt) + "\n")
                 js[design]["gamma_transfer"] = gt
-            js[design][loss] = {"agreement": t.to_dict("records"), "flips": f.to_dict("records"), "flip_explanation": fx,
-                                "ladder": L.to_dict("records"), "aa": A.to_dict("records")}
+            js[design][loss] = out
     mn = mnar_pooled()
-    md.append("\n## Label dependence of recording (pooled, cross-fitted; truth labels used for evaluation only)\n\n" + mn.to_markdown(index=False) + "\n")
+    md.append("\n## Recording vs outcome given the recorded features (pooled, cross-fitted; truth labels used for evaluation only)\n\n"
+              + mn.drop(columns=["log_or_ens", "se_ens"]).to_markdown(index=False) + "\n")
     js["mnar_pooled"] = mn.to_dict("records")
     ss, ssa = semisynth()
     if ss is not None:

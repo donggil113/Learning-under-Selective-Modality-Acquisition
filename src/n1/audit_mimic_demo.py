@@ -8,7 +8,11 @@ For each laboratory panel three indicators are computed per stay:
              (what a retrospective extract keyed on charttime reports)
   available  same, and the result was stored (storetime) by the cutoff
              (what a model running at the cutoff can actually read)
-  ordered    (imaging / cardiology only) a POE order of that subtype in the window
+  ordered    (imaging / cardiology only) a NEW POE order of that subtype in the
+             window that was not later discontinued (transaction_type == "New",
+             discontinued_by_poe_id empty).  An order is not proof the exam was
+             performed; the demo holds no image / waveform / report files at all,
+             so performance cannot be verified here.
 Modules absent from the demo (MIMIC-CXR, MIMIC-IV-ECG, notes) make every stay's
 image / waveform "file" absent although the order table shows the tests were
 ordered: a file-presence rule would code them as not acquired.
@@ -45,7 +49,8 @@ def run():
                 col = all((L.itemid == i).any() for i in items)
                 av = all(((L.itemid == i) & (L.storetime <= cut)).any() for i in items)
                 r[f"{p}_collected"], r[f"{p}_available"] = col, av
-            O = poe[(poe.subject_id == s.subject_id) & (poe.ordertime >= s.intime) & (poe.ordertime <= cut)]
+            O = poe[(poe.subject_id == s.subject_id) & (poe.ordertime >= s.intime) & (poe.ordertime <= cut)
+                    & (poe.transaction_type == "New") & poe.discontinued_by_poe_id.isna()]
             for (t, st), name in ORDERS.items():
                 r[name] = bool(((O.order_type == t) & (O.order_subtype == st)).any())
             rows.append(r)
@@ -57,7 +62,8 @@ def run():
                       "collected_not_available": int((c & ~a).sum()),
                       "frac_of_collected_not_available": float((c & ~a).sum() / max(c.sum(), 1))}
         for name in ORDERS.values():
-            res[name] = {"stays_with_order": int(df[name].sum()), "stays_with_file_in_demo": 0}
+            # the demo ships only hosp/ and icu/: no MIMIC-CXR, MIMIC-IV-ECG or echo report files exist
+            res[name] = {"stays_with_new_undiscontinued_order": int(df[name].sum()), "stays_with_file_in_demo": 0}
         out["cutoffs"][f"{h}h"] = res
     # storetime lag distribution for the panels (hours)
     lag = (le.storetime - le.charttime).dt.total_seconds() / 3600
