@@ -61,10 +61,10 @@ INFOGAIN에서 확인한, N1이 반복하면 안 되는 세 가지:
 |---|---|---|
 | C1 S/M 분리와 dropout–배포 격차의 3항 분해 | 분해 기법: Zhang et al. (ICML 2023), DISDE (Cai, Namkoong, Yadlowsky 2023). S/M 개념 구분: Zamanian et al. (J Pers Med 2024) | marginal. 두 모집단 설계에 적용한 것뿐 |
 | C2 최소 반례 + 가정 사다리 | 비수송성: Stokes App. A, Rockenschaub et al. (2024) Thm 1·Cor. 1. 그래프 비식별: Nabi et al. (2020), Mohan & Pearl (2021) | marginal. 순위 반전은 한 줄짜리 따름정리 |
-| C3 위험 **차**에 대한 odds-ratio 민감도 경계, 유병률 LP, bootstrap, 붕괴 Γ* | 두 정책 성능 **차**의 결합 구간(MSM/Rosenbaum Γ, DR, bootstrap): Guerdan, Coston, Holstein, Wu (ICML 2024). 수송된 위험의 tilt 민감도: Steingrimsson, Robertson, Dahabreh (Biometrics 2024). 기준선 대비 minimax regret: Kallus & Zhou (NeurIPS 2018). 유병률 제약 LP: Dorn & Guo 유형 | **marginal.** 이진 Y·점별 손실에서 위험 차는 p_T에 선형이므로 날카로운 경계는 구간 끝점 평가이고, 유병률 제약을 더하면 연속 배낭 LP다. mask 패턴별 tilt라는 대입만 새롭다 |
+| C3 위험 **차**에 대한 odds-ratio 민감도 경계, 유병률 LP, bootstrap, 붕괴 Γ* | 두 정책 성능 **차**의 결합 구간(MSM/Rosenbaum Γ, DR, bootstrap): Guerdan, Coston, Holstein, Wu (ICML 2024). 수송된 위험의 tilt 민감도: Steingrimsson, Robertson, Dahabreh (Biometrics 2024). 기준선 대비 minimax regret: Kallus & Zhou (NeurIPS 2018). 관측되지 않은 교란 아래 예측 알고리즘 성능 평가 경계: Rambachan, Coston, Kennedy. percentile bootstrap 민감도: Zhao, Small, Bhattacharya (JRSS-B 2019). 유병률 제약 LP: Dorn & Guo (sharp IPW 민감도) 유형. 반박 에이전트 2개 모두 "already done, high confidence" | **marginal.** 이진 Y·점별 손실에서 위험 차는 p_T에 선형이므로 날카로운 경계는 구간 끝점 평가이고, 유병률 제약을 더하면 연속 배낭 LP다. mask 패턴별 tilt라는 대입만 새롭다 |
 | C4 실제 코호트에서 인공 대 자연 순위를 통제된 방식으로 비교 | 현상 자체는 표로 보임: DrFuse (AAAI 2024), MedFuse (MLHC 2022), CareBench (2026), Groenwold (2020) | **moderate.** 고정 적격 모집단·cutoff, 같은 모델, 쌍별 부호 검정과 CI, 그리고 표본 선택·유병률 조정을 먼저 적용한 통제 비교는 확인된 선행연구가 없음 |
 
-미검증 인용은 `results/literature/` 요약에 표시했다(예: Stokes et al.의 학회 게재 여부는 확인 불가, arXiv v1만 확인).
+미검증 인용과 반박 에이전트의 판정 원문은 `results/literature/literature_workflow.json`에 있다(예: Stokes et al.의 학회 게재 여부는 확인 불가, arXiv v1만 확인).
 
 ## 4. 최소 반례와 가정 사다리 (수행 4)
 
