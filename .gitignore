@@ -1,0 +1,8 @@
+# raw data and derived caches are never committed (licenses: ODC-By / ODbL / CC BY;
+# the download script re-creates them and checks SHA-256)
+data/
+*.parquet
+__pycache__/
+*.pyc
+.pytest_cache/
+results/c2012/arrays_*.npz
