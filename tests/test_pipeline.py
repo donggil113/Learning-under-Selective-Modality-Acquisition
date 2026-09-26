@@ -32,7 +32,7 @@ def test_candidates_and_evaluators_run_and_rank_sensibly():
     D, P, Tt = np.arange(0, 1200), np.arange(1200, 2200), np.arange(2200, 3000)
     Xm = masked(X, M, spec)
     cands = fit_candidates(spec, Xm[D], M[D], y[D], Xm[P], M[P], seed=0, learners=("lr",))
-    assert len(cands) == 12
+    assert len(cands) == 14
     V = P[M[P].all(1)]
     ev = Evaluation(cands, spec, X[V], y[V], Xm[P], M[P], Xm[Tt], M[Tt], y[Tt], yU=y[P], seed=0,
                     v_in_u=np.where(M[P].all(1))[0])
@@ -46,6 +46,17 @@ def test_candidates_and_evaluators_run_and_rank_sensibly():
     assert lo <= pt <= up
     lo1, pt1, up1 = ev.aa_pair(0, 1, "brier", 1.0)
     assert abs(lo1 - up1) < 1e-12
+
+
+def test_replicated_fit_matches_unreplicated_regularisation():
+    """Stacking N_REP identical copies with weight 1/N_REP must equal a single fit (LR)."""
+    from src.n1.models import N_REP, _fit
+    rng = np.random.default_rng(2)
+    Z = rng.normal(size=(300, 4))
+    y = (rng.random(300) < 1 / (1 + np.exp(-Z[:, 0]))).astype(int)
+    a = _fit("lr", Z, y, 0).coef_
+    b = _fit("lr", np.tile(Z, (N_REP, 1)), np.tile(y, N_REP), 0, np.full(300 * N_REP, 1 / N_REP), rep=N_REP).coef_
+    assert np.allclose(a, b, atol=1e-4)
 
 
 def test_predictions_use_only_observed_panels():

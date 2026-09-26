@@ -20,7 +20,7 @@ UCI Heart 기관별 결측률(`python -m src.n1.audit_uci_heart`):
 
 ### 6.2 고정한 적격 모집단과 예측 시점 (PhysioNet 2012)
 
-* **E = 12,000 stays 전부.** 챌린지 자체의 포함 기준(성인 ICU stay ≥ 48시간, DNR/CMO 포함)을 그대로 따른다. **어떤 변수의 존재 여부로도 제외하지 않는다.** 기저 변수 일부가 없는 6.0% stay도 포함하며, 모든 방법이 같은 방식으로 처리한다(학습 중앙값 + 그룹 지시자).
+* **E = 12,000 stays 전부.** 챌린지 자체의 포함 기준(성인 ICU stay ≥ 48시간, DNR/CMO 포함)을 그대로 따른다. **어떤 변수의 존재 여부로도 제외하지 않는다.** 기저 변수 일부가 없는 6.0% stay도 포함한다. `hgb:nat_nan`을 제외한 모든 후보는 학습 중앙값 대입과 대입 전 자료로 계산한 기저 결측 그룹 지시자 3개를 쓴다. `nat_nan`은 트리의 native NaN 분기로 처리한다.
 * **cutoff τ = ICU 입실 후 48시간.** 모든 관측이 [0, 48] h 안에 있다(파서 확인: max t = 48.0).
 * **label**: 병원 내 사망(유병률 14.2%; 세트 a/b/c 13.9/14.2/14.6%).
 * **modality(panel)**: ABG(pH, PaO2, PaCO2), ALINE(침습 동맥압 = 동맥관), LACT(젖산), LIVER(ALT, AST, ALP, bilirubin). M_k=1은 panel의 모든 성분에 [0,48] h 안의 유효값이 하나 이상 있다는 뜻이다. 부분 기록 panel은 M_k=0으로 조정하고 값을 버린다(0.5/0.4/0/3.7%). 가용률은 ABG 75.4%, ALINE 69.9%, LACT 54.8%, LIVER 41.4%이다.
@@ -51,10 +51,12 @@ LIVER와 troponin의 저장 지연은 중앙값 1.3–1.5 h, 99백분위 9.5–1
 
 * **역할 회전**: 챌린지 세트 (a,b,c)의 6가지 순서 × seed 2 = **12 run** (완전사례 설계 `cc`). 교차 ICU 설계(`icu`, V = 외과계 ICU(CSRU, SICU) 완전사례, U/T = 내과계 ICU(CCU, MICU))는 6 run.
 * 역할별 크기(`cc`): D 4,000, V 889 (유병률 24.4%), U 4,000 (14.2%), T 4,000 (14.6%). 역할별 크기(`icu`): V 439, U 2,026, T 1,978.
-* **후보 25개 = 모든 결측 처리 전략 × {LR, HGB}**:
-  * 완전사례 학습: `cc_imp_mean`, `cc_imp_reg`, `cc_obs`(observed-only), `cc_drop`(dropout), `cc_drop_mask`(mask-aware dropout), `cc_dams`(Zhou et al. Alg. 1), `cc_vmar`(v-MAR 재마스킹 + mask), `cc_vmar_rw`(+ 재가중)
-  * 자연 결측 학습: `nat_imp_mean`, `nat_imp_ice`, `nat_mask`, `nat_obs`, `nat_nan`(HGB)
+* **후보 29개 = 모든 결측 처리 전략 × {LR, HGB}**:
+  * 완전사례 학습(D의 완전사례, 약 890 stay): `cc_imp_mean`, `cc_imp_reg`, `cc_obs`(observed-only), `cc_drop`(dropout), `cc_drop_mask`(mask-aware dropout), `cc_dams`(Zhou et al. Alg. 1), `cc_vmar`(v-MAR 재마스킹 + mask), `cc_vmar_rw`(+ 재가중)
+  * 자연 결측 학습(D 전체, 4,000 stay): `nat_imp_mean`, `nat_imp_ice`, `nat_mask`, `nat_drop`(자연 결측 위에 dropout 추가), `nat_drop_mask`, `nat_obs`, `nat_nan`(HGB)
   * 모든 후보는 같은 D(라벨)와 같은 U(비라벨)를 읽을 수 있다. 전략당 학습기마다 고정 설정 하나이고, 어느 전략도 추가 튜닝을 받지 않는다.
+  * 복제 학습(dropout/재마스킹, 5배)은 표본가중치 1/5와 트리 잎 크기 ×5를 써서, 단위당 정칙화가 다른 후보와 같다. 1차 실행에서는 이것이 빠져 있었고(LR에서 C=5에 해당), 검토에서 발견되어 전부 재실행했다(§9).
+  * **주의:** `cc_*`와 `nat_*`의 차이에는 전략 차이와 **학습 표본 크기(약 890 대 4,000)** 및 모집단(완전사례 대 전체) 차이가 섞여 있다. dropout 자체의 효과는 같은 자료를 쓰는 쌍(`nat_drop` 대 `nat_imp_mean`/`nat_mask`, `cc_drop` 대 `cc_imp_mean`)으로 비교한다.
 * **선택 규칙**은 모두 {V, U}만 읽는다. 예외는 `lab_n`(U에서 n개 label 공개, 별도 체제)과 `freq_prior_oracle`(참 유병률 하나만 공개하는 상한 점검)이다.
 * **진실**: T에서의 실제 Brier / log loss. bootstrap(200회)은 T, V, U 각각을 재표집한다.
 
@@ -84,7 +86,7 @@ LIVER와 troponin의 저장 지연은 중앙값 1.3–1.5 h, 99백분위 9.5–1
 
 ### 7.2 인공 masking과 자연 결측에서 순위가 바뀌는가? (수행 8, 첫 질문)
 
-**Kendall τ (평가 규칙의 25모델 순위 vs 자연 결측 진실; 평균 ± sd).** 완전사례 설계 12 run, 교차 ICU 설계 6 run.
+**Kendall τ (평가 규칙의 29모델 순위 vs 자연 결측 진실; 평균 ± sd).** 완전사례 설계 12 run, 교차 ICU 설계 6 run.
 
 | 평가 규칙 | cc Brier | cc log loss | icu Brier | icu log loss |
 |---|---|---|---|---|
@@ -249,7 +251,7 @@ bootstrap 95% CI를 식별 구간에 씌운 결정 규칙이다. **CI_lo(L*) > 0
   * PhysioNet 2012와 UCI Heart는 "기록 없음 = 검사 미시행"을 확인할 수 없다.
   * 획득 의미를 담은 자료(MIMIC-IV 전체와 CXR/ECG/Note, eICU 전체)는 credentialing이 필요해 이 프로젝트에서 접근할 수 없다.
   * 따라서 "선택적 **획득**"(임상의 결정) 수준의 주장은 실제 자료로 검증되지 않았다. 이 보고서의 실제 자료 결론은 모두 **기록 가용성 M**에 대한 것이다.
-* **남는 것(C4, moderate).** 고정된 적격 모집단과 cutoff에서 같은 25개 모델로 수행한 통제된 인공-대-자연 순위 비교다. 결론:
+* **남는 것(C4, moderate).** 고정된 적격 모집단과 cutoff에서 같은 29개 모델로 수행한 통제된 인공-대-자연 순위 비교다. 결론:
   1. 완전사례 코호트에서의 인공 dropout 평가는 자연 결측 순위를 **굵게는 맞히고**(τ 0.63–0.77), 유의한 반전은 드물다.
   2. 반전은 정보성 결측을 이용하는 mask-aware 모델에 몰린다.
   3. class balance와 관측 공변량 보정이 반전의 대부분을 설명한다.

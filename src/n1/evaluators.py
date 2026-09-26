@@ -267,6 +267,8 @@ def aa_bootstrap_ci(ev, loss, gamma_unit, direction=None, exact=True, n_boot=200
     lo, hi = or_interval(ps, gam)
     if direction == "down":
         hi, lo = np.minimum(hi, ps), np.minimum(lo, ps)
+    elif direction == "up":
+        hi, lo = np.maximum(hi, ps), np.maximum(lo, ps)
     ulo = c + np.where(g > 0, lo, hi) * g
     uup = c + np.where(g > 0, hi, lo) * g
     PV = np.asarray(ev.PV, float)

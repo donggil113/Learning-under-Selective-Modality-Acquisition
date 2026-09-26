@@ -23,9 +23,16 @@ Strategies (per learner: logistic regression ``lr`` and gradient boosting ``hgb`
   nat_imp_mean  natural D, mean fill, no indicators (missingness-unconditional)
   nat_imp_ice   natural D, iterative (chained-equation) imputation, no indicators
   nat_mask      natural D, mean fill + mask input (missingness-conditional)
+  nat_drop      natural D + extra modality dropout (each recorded panel dropped
+                w.p. 1/2), mean fill: dropout on the SAME data as the other nat_*
+  nat_drop_mask same, plus the mask as input
   nat_obs       observed-only pattern submodels, each fitted on units whose
                 pattern contains it (shared-pattern / reduced-model approach)
-  nat_nan       (hgb only) natural D, native NaN routing in the trees
+  nat_nan       (hgb only) natural D, native NaN routing in the trees, for the
+                panels AND the base covariates (no separate base indicators)
+Replicated training sets (dropout / re-masking) carry sample weight 1/N_REP and
+a tree leaf size scaled by N_REP, so every candidate has the same effective
+regularisation per unit.
 """
 from __future__ import annotations
 
@@ -85,18 +92,21 @@ class Prep:
         self.sd = np.where(sd > 1e-9, sd, 1.0)
         return self
 
-    def base_block(self, X):
+    def base_block(self, X, ind_from=None):
+        """``ind_from``: array whose base NaNs define the base-missing indicators
+        (the pre-imputation X when X itself has been imputed)."""
+        src = X if ind_from is None else ind_from
         B = X[:, self.spec.base_idx].copy()
         miss = np.isnan(B)
         B = np.where(miss, self.med[self.spec.base_idx], B)
         B = (B - self.mu[self.spec.base_idx]) / self.sd[self.spec.base_idx]
         pos = {c: j for j, c in enumerate(self.spec.base_idx)}
-        ind = np.stack([np.isnan(X[:, g]).any(1) for g in self.spec.groups.values()], 1).astype(float)
+        ind = np.stack([np.isnan(src[:, g]).any(1) for g in self.spec.groups.values()], 1).astype(float)
         return np.hstack([B, ind])
 
-    def full(self, X, M, indicators=False):
+    def full(self, X, M, indicators=False, ind_from=None):
         """All columns; masked panels set to 0 after standardisation."""
-        Z = [self.base_block(X)]
+        Z = [self.base_block(X, ind_from)]
         for k, idx in enumerate(self.spec.panel_idx):
             P = (X[:, idx] - self.mu[idx]) / self.sd[idx]
             P = np.where(M[:, [k]] & ~np.isnan(P), P, 0.0)
@@ -116,18 +126,22 @@ class Prep:
         return self.base_block(X)
 
 
-def make_learner(kind, seed):
+def make_learner(kind, seed, rep=1):
+    """``rep`` = number of stacked copies of each unit in the training matrix.
+    Replicated fits get sample weight 1/rep (exactly C=1 for the logistic loss)
+    and a leaf size of 30 *units* for the trees, so augmentation does not buy
+    weaker regularisation than the other candidates."""
     if kind == "lr":
         return LogisticRegression(C=1.0, max_iter=5000)
     if kind == "hgb":
         return HistGradientBoostingClassifier(learning_rate=0.05, max_iter=300, max_leaf_nodes=15,
-                                              min_samples_leaf=30, l2_regularization=1.0,
+                                              min_samples_leaf=30 * rep, l2_regularization=1.0,
                                               early_stopping=False, random_state=seed)
     raise ValueError(kind)
 
 
-def _fit(kind, Z, y, seed, w=None):
-    mdl = make_learner(kind, seed)
+def _fit(kind, Z, y, seed, w=None, rep=1):
+    mdl = make_learner(kind, seed, rep)
     if len(np.unique(y)) < 2:
         return ("const", float(np.mean(y)))
     mdl.fit(Z, y, sample_weight=w)
@@ -214,13 +228,13 @@ class Candidate:
             for k, idx in enumerate(self.prep.spec.panel_idx):
                 Xm[np.ix_(~M[:, k], idx)] = np.nan
             Xi = self.ice.transform(Xm)
-            return _pred(self.mdl, self.prep.full(Xi, np.ones_like(M)))
+            return _pred(self.mdl, self.prep.full(Xi, np.ones_like(M), ind_from=Xm))
         if s == "nat_nan":
             Xm = X.copy()
             for k, idx in enumerate(self.prep.spec.panel_idx):
                 Xm[np.ix_(~M[:, k], idx)] = np.nan
             return _pred(self.mdl, Xm)
-        ind = s in ("cc_drop_mask", "cc_vmar", "cc_vmar_rw", "nat_mask")
+        ind = s in ("cc_drop_mask", "cc_vmar", "cc_vmar_rw", "nat_mask", "nat_drop_mask")
         return _pred(self.mdl, self.prep.full(X, M, indicators=ind))
 
     def impute_reg(self, X, M):
@@ -292,12 +306,19 @@ def fit_candidates(spec, XD, MD, yD, XU, MU, seed=0, learners=("lr", "hgb")):
                                       ("cc_vmar_rw", "vmar", True, w_cc)):
             Ma = sample_masks(rng, K, len(r), how, prep=prep_cc, X=Xc[r], mm=mm, rate=rate, freq=freq)
             Z = prep_cc.full(Xc[r], Ma, indicators=ind)
-            add(strategy, prep=prep_cc, mdl=_fit(L, Z, yc[r], seed, None if w is None else w[r]))
+            wr = (np.ones(len(r)) if w is None else w[r]) / N_REP
+            add(strategy, prep=prep_cc, mdl=_fit(L, Z, yc[r], seed, wr, rep=N_REP))
         # natural development data
         add("nat_imp_mean", prep=prep_nat, mdl=_fit(L, prep_nat.full(Xn, MD), yD, seed))
         add("nat_imp_ice", prep=prep_nat, ice=ice,
-            mdl=_fit(L, prep_nat.full(ice.transform(Xn), np.ones_like(MD)), yD, seed))
+            mdl=_fit(L, prep_nat.full(ice.transform(Xn), np.ones_like(MD), ind_from=Xn), yD, seed))
         add("nat_mask", prep=prep_nat, mdl=_fit(L, prep_nat.full(Xn, MD, indicators=True), yD, seed))
+        # modality dropout on the natural development data (same data as the other nat_*)
+        rn = rep(len(Xn))
+        Mdrop = MD[rn] & (rng.random((len(rn), K)) < 0.5)
+        for strategy, ind in (("nat_drop", False), ("nat_drop_mask", True)):
+            add(strategy, prep=prep_nat, mdl=_fit(L, prep_nat.full(Xn[rn], Mdrop, indicators=ind), yD[rn], seed,
+                                                  np.full(len(rn), 1.0 / N_REP), rep=N_REP))
         sub = {}
         for m in range(len(P)):
             sup = (MD | ~P[m][None, :]).all(1)  # units whose pattern contains m

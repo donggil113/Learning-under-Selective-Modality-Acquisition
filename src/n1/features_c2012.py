@@ -26,8 +26,9 @@ assay change rather than a clinical decision.
 
 Base covariates X0 (recorded for ~94-98 % of stays): age, sex, ICU type, and
 48-h summaries of routine vitals and labs.  Their occasional absence is kept as
-NaN and handled identically by every method (source-median fill + group
-indicators); it is reported, not excluded.
+NaN; it is reported, not excluded.  Every candidate except ``hgb:nat_nan``
+uses training-median fill plus three base-missing group indicators, computed
+before any imputation; ``nat_nan`` routes the NaNs natively in the trees.
 """
 from __future__ import annotations
 

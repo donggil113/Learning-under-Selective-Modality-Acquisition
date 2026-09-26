@@ -52,7 +52,7 @@ def fig_tau(loss="brier"):
     ax.set_xlabel(f"Kendall τ vs the natural-missingness ranking ({loss}; mean ± sd over runs)")
     ax.set_xlim(-0.1, 1.0)
     ax.axvline(0, color=TEXT2, lw=0.8)
-    ax.set_title("Which evaluation reproduces the deployment ranking\nof 25 candidate models?", loc="left", fontsize=11)
+    ax.set_title("Which evaluation reproduces the deployment ranking\nof 29 candidate models?", loc="left", fontsize=11)
     fig.tight_layout(rect=(0, 0.07, 1, 1))
     h, l = ax.get_legend_handles_labels()
     fig.legend(h, l, loc="lower center", ncol=2, fontsize=8.5)

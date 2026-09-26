@@ -241,6 +241,48 @@ def aa_bootstrap(design, loss, settings=(("scalar", 1.0), ("scalar", 1.5), ("sca
     return df.groupby(["direction", "gamma"])[["decided_frac", "decided_correct", "ci_covers_true_delta"]].agg(["mean", "std"]).round(3)
 
 
+def dev_lambda(mnar_rows):
+    """Per-panel sensitivity from DEVELOPMENT labels only: inverse-variance
+    weighted slope (through the origin) of per-pattern log-OR on the number of
+    unrecorded panels.  Returns (lambda, direction)."""
+    x, y, w = [], [], []
+    for r in mnar_rows:
+        k = 4 - r["pattern"].count("1")
+        if k == 0 or not np.isfinite(r.get("se", np.nan)) or r["se"] <= 0:
+            continue
+        x.append(k); y.append(r["log_or"]); w.append(1 / r["se"] ** 2)
+    x, y, w = map(np.asarray, (x, y, w))
+    b = float(np.sum(w * x * y) / np.sum(w * x * x))
+    return float(np.exp(abs(b))), ("down" if b < 0 else "up")
+
+
+def aa_dev_calibrated(design, loss, n_boot=200, seed=1):
+    """Acquisition-aware selection with lambda AND direction chosen per run from
+    the labeled development set D (no deployment labels)."""
+    from .evaluators import aa_bootstrap_ci, unit_loss
+    rng = np.random.default_rng(seed)
+    rows = []
+    for f in sorted(glob.glob(str(ROOT / f"results/c2012/arrays_{design}_*.npz"))):
+        run = json.loads(Path(f.replace("arrays_", "run_").replace(".npz", ".json")).read_text())
+        lam, d = dev_lambda(run["mnar_dev"])
+        lam_T, d_T = dev_lambda(run["mnar"])
+        ev, exact = saved_eval(f)
+        tru = unit_loss(ev.PT.astype(float), ev.yT[None, :], loss).mean(1)
+        iu = np.triu_indices(len(tru), 1)
+        dt = (tru[:, None] - tru[None, :])[iu]
+        for direction in (d, None):
+            cl, cu, _ = aa_bootstrap_ci(ev, loss, ev.gamma_per_panel(lam), direction, exact, n_boot, rng)
+            dec = (cl > 0) | (cu < 0)
+            rows.append({"run": Path(f).stem, "lambda_dev": lam, "direction_dev": d, "lambda_T(oracle)": lam_T,
+                         "direction_T(oracle)": d_T, "rule": f"{direction or 'two'}-sided at lambda_dev",
+                         "decided_frac": dec.mean(),
+                         "decided_correct": np.mean(np.where(cl > 0, 1, -1)[dec] == np.sign(dt[dec])) if dec.any() else np.nan,
+                         "ci_covers_true_delta": np.mean((cl <= dt) & (dt <= cu))})
+    df = pd.DataFrame(rows)
+    df["rule"] = df["rule"].str.replace("down-sided", "one-sided(down)").str.replace("up-sided", "one-sided(up)")
+    return df
+
+
 def mnar_pooled():
     """Per pattern: odds ratio of death vs the complete-case model given x_o(m),
     cross-fitted by challenge set (outcome models from the complete cases of the
@@ -348,6 +390,16 @@ def main():
                 js[design].setdefault("aa_bootstrap", {})[loss] = ABf.reset_index().to_dict("records")
             except Exception as ex:
                 md.append(f"\n(aa bootstrap unavailable: {ex})\n")
+            try:
+                DC = aa_dev_calibrated(design, loss)
+                agg = DC.groupby("rule")[["lambda_dev", "decided_frac", "decided_correct", "ci_covers_true_delta"]].agg(["mean", "std"]).round(3)
+                md.append(f"\n### {loss}: acquisition-aware selection with lambda and direction calibrated on DEVELOPMENT labels only\n\n"
+                          + agg.to_markdown() + "\n\nper run: " + DC[["run", "lambda_dev", "direction_dev", "lambda_T(oracle)", "direction_T(oracle)"]].drop_duplicates().round(3).to_markdown(index=False) + "\n")
+                aggf = agg.copy()
+                aggf.columns = [f"{a}_{b}" for a, b in aggf.columns]
+                js[design].setdefault("aa_dev_calibrated", {})[loss] = aggf.reset_index().to_dict("records")
+            except Exception as ex:
+                md.append(f"\n(dev-calibrated aa unavailable: {ex})\n")
             try:
                 LP = label_part_analysis(design, loss)
                 md.append(f"\n### {loss}: label-dependent part of pairwise risk differences (truth set)\n\n" + LP.to_markdown() + "\n")
