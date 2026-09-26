@@ -210,6 +210,37 @@ def label_part_analysis(design, loss, n_boot=300, seed=0):
     return df.groupby("group")[[c for c in df.columns if c not in ("run", "group")]].agg(["mean", "std"]).round(3)
 
 
+def aa_bootstrap(design, loss, settings=(("scalar", 1.0), ("scalar", 1.5), ("scalar", 2.0), ("scalar", 3.0),
+                                         ("panel", 1.2), ("panel", 1.3), ("panel", 1.5)),
+                 directions=(None, "down"), n_boot=200, seed=0):
+    """Acquisition-aware selection WITH sampling uncertainty: a pair is decided only
+    when the bootstrap 95% CI of the identified interval [L(Gamma), U(Gamma)]
+    excludes 0 (evaluators.aa_bootstrap_ci).  Same information as the point
+    evaluators: V labels + unlabeled U."""
+    from .evaluators import aa_bootstrap_ci, unit_loss
+    rng = np.random.default_rng(seed)
+    rows = []
+    for f in sorted(glob.glob(str(ROOT / f"results/c2012/arrays_{design}_*.npz"))):
+        ev, exact = saved_eval(f)
+        tru = unit_loss(ev.PT.astype(float), ev.yT[None, :], loss).mean(1)
+        J = len(tru)
+        iu = np.triu_indices(J, 1)
+        dt = (tru[:, None] - tru[None, :])[iu]
+        nmis = ev.K - ev.P[ev.pidU].sum(1)
+        for kind, val in settings:
+            gam = (val ** nmis) if kind == "panel" else np.full(len(nmis), val)
+            for direction in directions:
+                cl, cu, _ = aa_bootstrap_ci(ev, loss, gam, direction, exact, n_boot, rng)
+                dec = (cl > 0) | (cu < 0)
+                sgn = np.where(cl > 0, 1, -1)
+                rows.append({"run": Path(f).stem, "gamma": f"{kind}:{val}", "direction": direction or "two",
+                             "decided_frac": dec.mean(),
+                             "decided_correct": np.mean(sgn[dec] == np.sign(dt[dec])) if dec.any() else np.nan,
+                             "ci_covers_true_delta": np.mean((cl <= dt) & (dt <= cu))})
+    df = pd.DataFrame(rows)
+    return df.groupby(["direction", "gamma"])[["decided_frac", "decided_correct", "ci_covers_true_delta"]].agg(["mean", "std"]).round(3)
+
+
 def mnar_pooled():
     """Per pattern: odds ratio of death vs the complete-case model given x_o(m),
     cross-fitted by challenge set (outcome models from the complete cases of the
@@ -262,13 +293,24 @@ def semisynth():
                              "top1_regret(x1e3)": ms([1e3 * r[loss]["agreement"][e]["top1_regret"] for r in rr]),
                              "mean_abs_risk_error(x1e3)": ms([1e3 * r[loss]["bias_mean_abs"][e] for r in rr]),
                              "mean_abs_pair_error(x1e3)": ms([1e3 * r[loss]["pair_abs_err"][e] for r in rr])})
-            for key in rr[0][loss]["aa"]:
-                d, lam = key.split(":")
-                A = [r[loss]["aa"][key] for r in rr]
-                aa.append({"loss": loss, "mechanism": mech, "lambda_true": rr[0]["lambda_true"], "direction": d,
-                           "lambda": float(lam), "covers": ms([a["covers"] for a in A]),
-                           "decided_frac": ms([a["decided_frac"] for a in A]),
-                           "decided_correct": ms([a["decided_correct"] for a in A])})
+            for kind in ("aa", "aa_boot"):
+                if kind not in rr[0][loss]:
+                    continue
+                for key in rr[0][loss][kind]:
+                    d, lam = key.split(":")
+                    A = [r[loss][kind][key] for r in rr]
+                    aa.append({"loss": loss, "mechanism": mech, "lambda_true": rr[0]["lambda_true"],
+                               "uncertainty": "bootstrap CI" if kind == "aa_boot" else "none (identified set only)",
+                               "direction": d, "lambda": float(lam), "covers": ms([a["covers"] for a in A]),
+                               "decided_frac": ms([a["decided_frac"] for a in A]),
+                               "decided_correct": ms([a["decided_correct"] for a in A])})
+            if "boot_ref" in rr[0][loss]:
+                for e in rr[0][loss]["boot_ref"]:
+                    A = [r[loss]["boot_ref"][e] for r in rr]
+                    aa.append({"loss": loss, "mechanism": mech, "lambda_true": rr[0]["lambda_true"],
+                               "uncertainty": f"reference: {e} + bootstrap CI", "direction": "-", "lambda": float("nan"),
+                               "covers": ms([a["covers"] for a in A]), "decided_frac": ms([a["decided_frac"] for a in A]),
+                               "decided_correct": ms([a["decided_correct"] for a in A])})
     return pd.DataFrame(rows), pd.DataFrame(aa)
 
 
@@ -298,6 +340,14 @@ def main():
             md.append(f"\n### {loss}: mean rank of each candidate (1 = best)\n\n" + S.round(4).to_markdown() + "\n")
             A = aa_table(runs, loss)
             md.append(f"\n### {loss}: acquisition-aware bounds, scalar Gamma\n\n" + A.to_markdown(index=False) + "\n")
+            try:
+                AB = aa_bootstrap(design, loss)
+                md.append(f"\n### {loss}: acquisition-aware selection with bootstrap 95% CI on the identified interval\n\n" + AB.to_markdown() + "\n")
+                ABf = AB.copy()
+                ABf.columns = [f"{a}_{b}" for a, b in ABf.columns]
+                js[design].setdefault("aa_bootstrap", {})[loss] = ABf.reset_index().to_dict("records")
+            except Exception as ex:
+                md.append(f"\n(aa bootstrap unavailable: {ex})\n")
             try:
                 LP = label_part_analysis(design, loss)
                 md.append(f"\n### {loss}: label-dependent part of pairwise risk differences (truth set)\n\n" + LP.to_markdown() + "\n")

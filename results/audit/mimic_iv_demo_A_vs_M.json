@@ -1,0 +1,104 @@
+{
+  "n_stays": 140,
+  "n_patients": 100,
+  "cutoffs": {
+    "24h": {
+      "ABG": {
+        "collected": 83,
+        "available_at_cutoff": 83,
+        "collected_not_available": 0,
+        "frac_of_collected_not_available": 0.0
+      },
+      "LACT": {
+        "collected": 86,
+        "available_at_cutoff": 86,
+        "collected_not_available": 0,
+        "frac_of_collected_not_available": 0.0
+      },
+      "LIVER": {
+        "collected": 59,
+        "available_at_cutoff": 58,
+        "collected_not_available": 1,
+        "frac_of_collected_not_available": 0.01694915254237288
+      },
+      "TROP_T": {
+        "collected": 41,
+        "available_at_cutoff": 40,
+        "collected_not_available": 1,
+        "frac_of_collected_not_available": 0.024390243902439025
+      },
+      "xray_ordered": {
+        "stays_with_order": 91,
+        "stays_with_file_in_demo": 0
+      },
+      "ecg_ordered": {
+        "stays_with_order": 34,
+        "stays_with_file_in_demo": 0
+      },
+      "echo_ordered": {
+        "stays_with_order": 36,
+        "stays_with_file_in_demo": 0
+      }
+    },
+    "48h": {
+      "ABG": {
+        "collected": 86,
+        "available_at_cutoff": 86,
+        "collected_not_available": 0,
+        "frac_of_collected_not_available": 0.0
+      },
+      "LACT": {
+        "collected": 91,
+        "available_at_cutoff": 91,
+        "collected_not_available": 0,
+        "frac_of_collected_not_available": 0.0
+      },
+      "LIVER": {
+        "collected": 63,
+        "available_at_cutoff": 63,
+        "collected_not_available": 0,
+        "frac_of_collected_not_available": 0.0
+      },
+      "TROP_T": {
+        "collected": 44,
+        "available_at_cutoff": 44,
+        "collected_not_available": 0,
+        "frac_of_collected_not_available": 0.0
+      },
+      "xray_ordered": {
+        "stays_with_order": 106,
+        "stays_with_file_in_demo": 0
+      },
+      "ecg_ordered": {
+        "stays_with_order": 37,
+        "stays_with_file_in_demo": 0
+      },
+      "echo_ordered": {
+        "stays_with_order": 42,
+        "stays_with_file_in_demo": 0
+      }
+    }
+  },
+  "storetime_lag_hours": {
+    "ABG": {
+      "50": 0.04166666666666667,
+      "90": 0.08333333333333333,
+      "99": 0.38566666666667215
+    },
+    "LACT": {
+      "50": 0.05,
+      "90": 0.1,
+      "99": 0.4166666666666667
+    },
+    "LIVER": {
+      "50": 1.3166666666666667,
+      "90": 3.283333333333333,
+      "99": 9.497333333333335
+    },
+    "TROP_T": {
+      "50": 1.4833333333333334,
+      "90": 4.086666666666668,
+      "99": 12.591833333333375
+    }
+  }
+}

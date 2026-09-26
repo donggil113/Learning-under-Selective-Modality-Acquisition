@@ -34,7 +34,7 @@ from scipy.stats import kendalltau, spearmanr
 from sklearn.linear_model import LogisticRegression
 
 from .models import Prep, pattern_id, patterns, weights_from, domain_weights
-from .theory import diff_bounds, breakdown_gamma
+from .theory import breakdown_gamma, diff_bounds, or_interval
 
 
 def loss01(p, loss):
@@ -247,6 +247,40 @@ class Evaluation:
             else:
                 y = mid
         return float(y)
+
+
+def aa_bootstrap_ci(ev, loss, gamma_unit, direction=None, exact=True, n_boot=200, rng=None):
+    """Bootstrap 95% CI of the identified interval for every pairwise risk
+    difference: (2.5 % quantile of L*, 97.5 % quantile of U*), resampling U
+    units (bound) and V units (DR shift).  ``gamma_unit``: one Gamma per U unit
+    (complete-pattern units are held at Gamma = 1 when ``exact``).  Returns
+    (ci_lo, ci_hi, pair_index)."""
+    rng = np.random.default_rng(0) if rng is None else rng
+    J = ev.PU.shape[0]
+    iu = np.triu_indices(J, 1)
+    l0, l1 = loss01(np.asarray(ev.PU, float), loss)
+    c = (l0[:, None, :] - l0[None, :, :])[iu]
+    g = ((l1 - l0)[:, None, :] - (l1 - l0)[None, :, :])[iu]
+    ps = np.clip(ev.pS_U, 1e-6, 1 - 1e-6)
+    inc = (ev.pidU != ev.full_id) if exact else np.ones(len(ps), bool)
+    gam = np.where(inc, gamma_unit, 1.0)
+    lo, hi = or_interval(ps, gam)
+    if direction == "down":
+        hi, lo = np.minimum(hi, ps), np.minimum(lo, ps)
+    ulo = c + np.where(g > 0, lo, hi) * g
+    uup = c + np.where(g > 0, hi, lo) * g
+    PV = np.asarray(ev.PV, float)
+    LV = unit_loss(PV, ev.yV[None, None, :], loss)
+    v0, v1 = loss01(PV, loss)
+    R = LV - (v0 * (1 - ev.pS_V_cf[None]) + v1 * ev.pS_V_cf[None])
+    nV, nU = len(ev.yV), len(ps)
+    WV = rng.multinomial(nV, np.full(nV, 1 / nV), size=n_boot).astype(float)
+    WU = rng.multinomial(nU, np.full(nU, 1 / nU), size=n_boot).astype(float) / nU
+    corr = np.einsum("jmi,mi,bi->bjm", R, ev.w_pat, WV) / np.einsum("mi,bi->bm", ev.w_pat, WV)[:, None, :]
+    corr = corr @ ev.freq
+    shift = (corr[:, :, None] - corr[:, None, :])[:, iu[0], iu[1]]
+    Lb, Ub = WU @ ulo.T + shift, WU @ uup.T + shift
+    return np.percentile(Lb, 2.5, axis=0), np.percentile(Ub, 97.5, axis=0), iu
 
 
 # --------------------------------------------------------------------------

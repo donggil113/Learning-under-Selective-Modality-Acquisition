@@ -1,0 +1,86 @@
+{
+  "cleveland": {
+    "n": 303,
+    "disease_rate(num>0)": 0.459,
+    "missing_frac": {
+      "age": 0.0,
+      "sex": 0.0,
+      "cp": 0.0,
+      "trestbps": 0.0,
+      "chol": 0.0,
+      "fbs": 0.0,
+      "restecg": 0.0,
+      "thalach": 0.0,
+      "exang": 0.0,
+      "oldpeak": 0.0,
+      "slope": 0.0,
+      "ca": 0.013,
+      "thal": 0.007,
+      "num": 0.0,
+      "chol==0": 0.0
+    }
+  },
+  "hungarian": {
+    "n": 294,
+    "disease_rate(num>0)": 0.361,
+    "missing_frac": {
+      "age": 0.0,
+      "sex": 0.0,
+      "cp": 0.0,
+      "trestbps": 0.003,
+      "chol": 0.078,
+      "fbs": 0.027,
+      "restecg": 0.003,
+      "thalach": 0.003,
+      "exang": 0.003,
+      "oldpeak": 0.0,
+      "slope": 0.646,
+      "ca": 0.99,
+      "thal": 0.905,
+      "num": 0.0,
+      "chol==0": 0.0
+    }
+  },
+  "switzerland": {
+    "n": 123,
+    "disease_rate(num>0)": 0.935,
+    "missing_frac": {
+      "age": 0.0,
+      "sex": 0.0,
+      "cp": 0.0,
+      "trestbps": 0.016,
+      "chol": 0.0,
+      "fbs": 0.61,
+      "restecg": 0.008,
+      "thalach": 0.008,
+      "exang": 0.008,
+      "oldpeak": 0.049,
+      "slope": 0.138,
+      "ca": 0.959,
+      "thal": 0.423,
+      "num": 0.0,
+      "chol==0": 1.0
+    }
+  },
+  "va": {
+    "n": 200,
+    "disease_rate(num>0)": 0.745,
+    "missing_frac": {
+      "age": 0.0,
+      "sex": 0.0,
+      "cp": 0.0,
+      "trestbps": 0.28,
+      "chol": 0.035,
+      "fbs": 0.035,
+      "restecg": 0.0,
+      "thalach": 0.265,
+      "exang": 0.265,
+      "oldpeak": 0.28,
+      "slope": 0.51,
+      "ca": 0.99,
+      "thal": 0.83,
+      "num": 0.0,
+      "chol==0": 0.245
+    }
+  }
+}

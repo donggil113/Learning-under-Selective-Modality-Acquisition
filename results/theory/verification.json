@@ -1,0 +1,45 @@
+{
+  "ce1_same_observed_law": true,
+  "ce1_same_dropout_estimate": true,
+  "ce1_dropout_prefers_A": true,
+  "ce1_W1_prefers_A": true,
+  "ce1_W2_prefers_B": true,
+  "ce1_values": {
+    "MCAR": {
+      "P_T(Y=1|M=0)": "1/2",
+      "R_T(A)": "7/32",
+      "R_T(B)": "29/128",
+      "R_drop_rate_matched(A)": "7/32",
+      "R_drop_rate_matched(B)": "29/128"
+    },
+    "label-dependent": {
+      "P_T(Y=1|M=0)": "3/8",
+      "R_T(A)": "3/16",
+      "R_T(B)": "23/128",
+      "R_drop_rate_matched(A)": "7/32",
+      "R_drop_rate_matched(B)": "29/128"
+    }
+  },
+  "ce2_dropout_prefers_B": true,
+  "ce2_target_prefers_A": true,
+  "ce2_reweighting_recovers": true,
+  "ce2_values": {
+    "P_T(Y=1|M=0)": "3/10",
+    "P_S(X0=1)": "9/10",
+    "P_T(X0=1)": "1/2",
+    "P_T(M=0)": "1/2",
+    "R_T(A)": "143/800",
+    "R_T(B)": "207/800",
+    "R_drop_rate_matched(A)": "207/800",
+    "R_drop_rate_matched(B)": "143/800",
+    "R_reweighted(A)": "143/800",
+    "R_reweighted(B)": "207/800"
+  },
+  "decomposition_max_abs_error": 4.440892098500626e-16,
+  "bounds_violations_random_feasible": 0,
+  "bounds_max_gap_vs_LP": 4.440892098500626e-16,
+  "prevalence_bounds_max_gap_vs_LP": 9.992007221626409e-16,
+  "gamma1_collapses": true,
+  "bounds_nested_in_gamma": true,
+  "all_ok": true
+}

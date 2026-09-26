@@ -30,7 +30,7 @@ from joblib import Parallel, delayed
 from scipy.optimize import brentq
 from sklearn.linear_model import LogisticRegression
 
-from .evaluators import Evaluation, agreement, loss01, unit_loss
+from .evaluators import Evaluation, aa_bootstrap_ci, agreement, loss01, unit_loss
 from .features_c2012 import build
 from .models import Prep, fit_candidates, pattern_id, patterns
 from .run_c2012 import make_spec
@@ -118,6 +118,30 @@ def one(mech, rep, out_dir):
                     "decided_correct": float(np.mean(np.sign(dt[decided]) == sgn[decided])) if decided.any() else float("nan"),
                     "width": float(np.mean(up - lo))}
         out["aa"] = aa
+        # with sampling uncertainty (bootstrap CI of the identified interval)
+        aab = {}
+        brng = np.random.default_rng(77 + rep)
+        for direction in (None, "down"):
+            for lam in lam_grid:
+                cl, cu, _ = aa_bootstrap_ci(ev, loss, ev.gamma_per_panel(lam), direction, True, 200, brng)
+                dec = (cl > 0) | (cu < 0)
+                sgn = np.where(cl > 0, 1, -1)
+                aab[f"{direction or 'two'}:{lam:.3f}"] = {
+                    "covers": float(np.mean((cl <= dt) & (dt <= cu))),
+                    "decided_frac": float(dec.mean()),
+                    "decided_correct": float(np.mean(np.sign(dt[dec]) == sgn[dec])) if dec.any() else float("nan")}
+        out["aa_boot"] = aab
+        # naive dropout with the same bootstrap over V, for reference
+        LV = unit_loss(ev.PV, ev.yV[None, None, :], loss)
+        W = brng.multinomial(len(ev.yV), np.full(len(ev.yV), 1 / len(ev.yV)), size=200).astype(float) / len(ev.yV)
+        for e, q in (("drop50", np.full(ev.nP, 1 / ev.nP)), ("freq", ev.freq)):
+            rb = np.einsum("jmi,bi->bjm", LV, W) @ q
+            db = (rb[:, :, None] - rb[:, None, :])[:, iu[0], iu[1]]
+            lo_, hi_ = np.percentile(db, [2.5, 97.5], axis=0)
+            dec = (lo_ > 0) | (hi_ < 0)
+            out.setdefault("boot_ref", {})[e] = {
+                "covers": float(np.mean((lo_ <= dt) & (dt <= hi_))), "decided_frac": float(dec.mean()),
+                "decided_correct": float(np.mean(np.sign(dt[dec]) == np.where(lo_ > 0, 1, -1)[dec])) if dec.any() else float("nan")}
         res[loss] = out
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / f"semi_{mech}_r{rep}.json").write_text(json.dumps(res))
